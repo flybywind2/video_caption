@@ -37,12 +37,14 @@ class WhisperClient:
                 "Set WHISPER_DEP_TICKET and WHISPER_USER_ID."
             )
 
-        data = [
-            ("model", self.settings.whisper_model),
-            ("language", language),
-            ("timestamp_granularities", "word"),
-            ("response_format", "diarized_json"),
-        ]
+        # httpx.AsyncClient requires form fields here to be a mapping.
+        # A list of tuples produces a sync multipart stream and fails at send time.
+        data = {
+            "model": self.settings.whisper_model,
+            "language": language,
+            "timestamp_granularities": "word",
+            "response_format": "diarized_json",
+        }
 
         timeout = httpx.Timeout(
             self.settings.whisper_timeout_seconds,
