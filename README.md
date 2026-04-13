@@ -45,6 +45,7 @@ app/
 - Python 3.10+
 - network access from the backend to your Whisper API
 - `ffmpeg` and `ffprobe` available on the host, or set custom binary paths in `.env`
+- large audio uploads are automatically chunked before Whisper retry if the gateway rejects a single request
 
 ## Install
 
@@ -70,6 +71,8 @@ WHISPER_DEP_TICKET=credential:...
 WHISPER_USER_ID=YOUR_AD_ID
 WHISPER_REQUIRE_AUTH=true
 WHISPER_TIMEOUT_SECONDS=600
+WHISPER_MAX_UPLOAD_BYTES=8388608
+WHISPER_CHUNK_SECONDS=480
 ```
 
 Optional overrides:
@@ -79,6 +82,8 @@ FFMPEG_BIN=ffmpeg
 FFPROBE_BIN=ffprobe
 ```
 
+`WHISPER_MAX_UPLOAD_BYTES` is the pre-check threshold before the app switches to chunked transcription.
+`WHISPER_CHUNK_SECONDS` controls per-chunk audio duration for fallback uploads.
 If you keep project-local binaries instead, point these values at those absolute paths.
 Keep real credentials in `.env`. The repo includes `.env.example` as the template.
 

@@ -33,6 +33,8 @@ class Settings:
     whisper_user_id: str
     whisper_timeout_seconds: float
     whisper_require_auth: bool
+    whisper_max_upload_bytes: int
+    whisper_chunk_seconds: int
     worker_count: int
 
     @classmethod
@@ -64,6 +66,10 @@ class Settings:
             whisper_require_auth=_as_bool(
                 os.getenv("WHISPER_REQUIRE_AUTH"), default=True
             ),
+            whisper_max_upload_bytes=int(
+                os.getenv("WHISPER_MAX_UPLOAD_BYTES", str(8 * 1024 * 1024))
+            ),
+            whisper_chunk_seconds=max(60, int(os.getenv("WHISPER_CHUNK_SECONDS", "480"))),
             worker_count=max(1, int(os.getenv("APP_WORKER_COUNT", "2"))),
         )
 

@@ -22,6 +22,7 @@ class TaskArtifacts:
     uploads_dir: Path
     source_video_path: Path
     audio_path: Path
+    chunk_dir: Path
     transcript_path: Path
     captions_path: Path
     srt_path: Path
@@ -30,6 +31,7 @@ class TaskArtifacts:
     def ensure_directories(self) -> None:
         self.task_dir.mkdir(parents=True, exist_ok=True)
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
+        self.chunk_dir.mkdir(parents=True, exist_ok=True)
 
 
 def build_task_artifacts(storage_root: Path, task_id: str, original_filename: str) -> TaskArtifacts:
@@ -40,7 +42,8 @@ def build_task_artifacts(storage_root: Path, task_id: str, original_filename: st
         task_dir=task_dir,
         uploads_dir=uploads_dir,
         source_video_path=uploads_dir / safe_filename(original_filename),
-        audio_path=task_dir / "audio.wav",
+        audio_path=task_dir / "audio.mp3",
+        chunk_dir=task_dir / "audio-chunks",
         transcript_path=task_dir / "transcript.json",
         captions_path=task_dir / "captions.json",
         srt_path=task_dir / "captions.srt",

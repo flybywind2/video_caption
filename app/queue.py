@@ -15,8 +15,17 @@ from app.artifacts import (
 from app.config import Settings
 from app.database import TaskRepository, utc_now
 from app.services.captions import build_srt, cues_from_transcript, normalize_cues
-from app.services.ffmpeg import extract_audio, render_subtitles
-from app.services.whisper import WhisperClient
+from app.services.ffmpeg import (
+    extract_audio,
+    probe_duration,
+    render_subtitles,
+    split_audio,
+)
+from app.services.whisper import (
+    WhisperClient,
+    WhisperPayloadTooLargeError,
+    merge_transcripts,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,7 +157,7 @@ class TaskProcessor:
             status="processing",
             pending_action="transcribe",
             progress=0.1,
-            message="Extracting audio from uploaded video",
+            message="Extracting compressed audio from uploaded video",
             error_message=None,
             started_at=utc_now(),
         )
@@ -169,7 +178,12 @@ class TaskProcessor:
             progress=0.35,
             message="Calling Whisper transcription API",
         )
-        transcript = await self.whisper.transcribe(artifacts.audio_path, task["language"])
+        transcript = await self._transcribe_with_fallback(
+            task_id,
+            artifacts.audio_path,
+            artifacts.chunk_dir,
+            task["language"],
+        )
         cues = cues_from_transcript(transcript)
         if not cues:
             raise RuntimeError("Transcription returned no usable caption segments.")
@@ -210,6 +224,90 @@ class TaskProcessor:
             error_message=None,
             completed_at=utc_now(),
         )
+
+    async def _transcribe_with_fallback(
+        self,
+        task_id: str,
+        audio_path: Path,
+        chunk_dir: Path,
+        language: str,
+    ) -> dict[str, Any]:
+        audio_size = audio_path.stat().st_size if audio_path.exists() else 0
+        if audio_size > self.settings.whisper_max_upload_bytes:
+            return await self._transcribe_in_chunks(
+                task_id,
+                audio_path,
+                chunk_dir,
+                language,
+                reason=(
+                    "Compressed audio still exceeds the configured upload limit. "
+                    "Switching to chunked transcription"
+                ),
+            )
+
+        try:
+            return await self.whisper.transcribe(audio_path, language)
+        except WhisperPayloadTooLargeError:
+            return await self._transcribe_in_chunks(
+                task_id,
+                audio_path,
+                chunk_dir,
+                language,
+                reason="Gateway rejected single audio upload with HTTP 413",
+            )
+
+    async def _transcribe_in_chunks(
+        self,
+        task_id: str,
+        audio_path: Path,
+        chunk_dir: Path,
+        language: str,
+        *,
+        reason: str,
+    ) -> dict[str, Any]:
+        self.repository.update_task(
+            task_id,
+            status="processing",
+            progress=0.4,
+            message=(
+                f"{reason}. Splitting audio into "
+                f"{self.settings.whisper_chunk_seconds // 60}-minute chunks"
+            ),
+        )
+
+        chunk_paths = await asyncio.to_thread(
+            split_audio,
+            audio_path,
+            chunk_dir,
+            self.settings.whisper_chunk_seconds,
+            self.settings.ffmpeg_bin,
+        )
+
+        merged_inputs: list[tuple[float, dict[str, Any]]] = []
+        offset = 0.0
+        total_chunks = len(chunk_paths)
+
+        for index, chunk_path in enumerate(chunk_paths, start=1):
+            if self._should_delete(task_id):
+                self._purge_task(task_id)
+                raise RuntimeError("Task deleted while transcribing audio chunks.")
+
+            self.repository.update_task(
+                task_id,
+                status="processing",
+                progress=0.4 + (0.25 * index / max(total_chunks, 1)),
+                message=f"Transcribing chunk {index}/{total_chunks}",
+            )
+            transcript = await self.whisper.transcribe(chunk_path, language)
+            chunk_duration = await asyncio.to_thread(
+                probe_duration,
+                chunk_path,
+                self.settings.ffprobe_bin,
+            )
+            merged_inputs.append((offset, transcript))
+            offset += max(chunk_duration, float(transcript.get("duration") or 0.0), 0.1)
+
+        return merge_transcripts(merged_inputs)
 
     async def _render_only(self, task_id: str) -> None:
         task = self.repository.get_task(task_id)
