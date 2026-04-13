@@ -34,14 +34,12 @@ from app.services.captions import build_srt, normalize_cues
 settings = Settings.from_env()
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
-
-
 def ready_artifact_url(task_id: str, artifact_name: str, raw_path: str | None) -> str | None:
     if not raw_path:
         return None
     if not Path(raw_path).is_file():
         return None
-    return f"/api/tasks/{task_id}/artifacts/{artifact_name}"
+    return f"api/tasks/{task_id}/artifacts/{artifact_name}"
 
 
 def build_artifact_links(task: dict) -> ArtifactLinks:

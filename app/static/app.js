@@ -4,6 +4,13 @@ const state = {
   detail: null,
 };
 
+const APP_BASE = new URL(window.location.href);
+if (!APP_BASE.pathname.endsWith("/")) {
+  APP_BASE.pathname = `${APP_BASE.pathname}/`;
+}
+
+const API_BASE = new URL("api/", APP_BASE);
+
 const taskListEl = document.getElementById("task-list");
 const uploadForm = document.getElementById("upload-form");
 const uploadMessageEl = document.getElementById("upload-message");
@@ -76,6 +83,17 @@ async function requestJson(url, options = {}) {
     return null;
   }
   return response.json();
+}
+
+function apiUrl(path) {
+  return new URL(path.replace(/^\//, ""), API_BASE).toString();
+}
+
+function resolveAppUrl(path) {
+  if (!path) {
+    return null;
+  }
+  return new URL(path, APP_BASE).toString();
 }
 
 function renderTasks() {
@@ -161,17 +179,18 @@ function syncDetailView() {
   detailMetaEl.textContent = `${prettyStatus(task.status)} · ${formatPercent(task.progress)} · ${task.language}`;
   transcriptTextEl.textContent = task.transcript_text || "전사 결과가 준비되면 이곳에 표시됩니다.";
 
-  const videoUrl = task.artifacts.rendered_video || task.artifacts.source_video;
+  const videoUrl = resolveAppUrl(task.artifacts.rendered_video || task.artifacts.source_video);
   if (videoUrl) {
     previewVideoEl.src = videoUrl;
   } else {
     previewVideoEl.removeAttribute("src");
   }
 
-  sourceLink.href = task.artifacts.source_video || "#";
-  renderedLink.href = task.artifacts.rendered_video || task.artifacts.source_video || "#";
-  transcriptLink.href = task.artifacts.transcript_json || "#";
-  srtLink.href = task.artifacts.srt || "#";
+  sourceLink.href = resolveAppUrl(task.artifacts.source_video) || "#";
+  renderedLink.href =
+    resolveAppUrl(task.artifacts.rendered_video || task.artifacts.source_video) || "#";
+  transcriptLink.href = resolveAppUrl(task.artifacts.transcript_json) || "#";
+  srtLink.href = resolveAppUrl(task.artifacts.srt) || "#";
 
   sourceLink.style.display = task.artifacts.source_video ? "inline" : "none";
   renderedLink.style.display = task.artifacts.rendered_video ? "inline" : "none";
@@ -184,7 +203,7 @@ function syncDetailView() {
 
 async function loadHealth() {
   try {
-    const health = await requestJson("/api/health");
+    const health = await requestJson(apiUrl("health"));
     queueSizeEl.textContent = String(health.queue_size);
     workerCountEl.textContent = String(health.worker_count);
     ffmpegStatusEl.textContent = health.ffmpeg_available ? "Ready" : "Missing";
@@ -196,7 +215,7 @@ async function loadHealth() {
 }
 
 async function loadTasks({ preserveSelection = true } = {}) {
-  const tasks = await requestJson("/api/tasks");
+  const tasks = await requestJson(apiUrl("tasks"));
   state.tasks = tasks;
 
   if (preserveSelection && state.selectedTaskId) {
@@ -216,7 +235,7 @@ async function loadTasks({ preserveSelection = true } = {}) {
 
 async function loadTaskDetail(taskId, { silent = false } = {}) {
   try {
-    const detail = await requestJson(`/api/tasks/${taskId}`);
+    const detail = await requestJson(apiUrl(`tasks/${taskId}`));
     state.selectedTaskId = taskId;
     state.detail = detail;
     renderTasks();
@@ -262,7 +281,7 @@ uploadForm.addEventListener("submit", async (event) => {
   const formData = new FormData(uploadForm);
   setMessage(uploadMessageEl, "업로드 중...", "");
   try {
-    const detail = await requestJson("/api/tasks", {
+    const detail = await requestJson(apiUrl("tasks"), {
       method: "POST",
       body: formData,
     });
@@ -294,7 +313,9 @@ taskListEl.addEventListener("click", async (event) => {
       return;
     }
     try {
-      const result = await requestJson(`/api/tasks/${taskId}`, { method: "DELETE" });
+      const result = await requestJson(apiUrl(`tasks/${taskId}`), {
+        method: "DELETE",
+      });
       if (state.selectedTaskId === taskId && !result.accepted) {
         state.selectedTaskId = null;
         state.detail = null;
@@ -315,7 +336,9 @@ retryButton.addEventListener("click", async () => {
     return;
   }
   try {
-    await requestJson(`/api/tasks/${state.selectedTaskId}/retry`, { method: "POST" });
+    await requestJson(apiUrl(`tasks/${state.selectedTaskId}/retry`), {
+      method: "POST",
+    });
     setMessage(editorMessageEl, "작업을 다시 큐에 넣었습니다.", "success");
     await loadTasks();
   } catch (error) {
@@ -353,7 +376,7 @@ saveCuesButton.addEventListener("click", async () => {
   }
   const cues = collectCues().filter((cue) => cue.text);
   try {
-    const detail = await requestJson(`/api/tasks/${state.selectedTaskId}/captions`, {
+    const detail = await requestJson(apiUrl(`tasks/${state.selectedTaskId}/captions`), {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
