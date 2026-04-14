@@ -20,6 +20,16 @@ def _as_bool(value: str | None, default: bool) -> bool:
     return value.strip().lower() not in {"0", "false", "no", "off"}
 
 
+def _split_paths(value: str | None, default: list[Path]) -> tuple[Path, ...]:
+    if not value:
+        return tuple(default)
+    return tuple(
+        Path(item).expanduser()
+        for item in value.split(os.pathsep)
+        if item.strip()
+    )
+
+
 @dataclass(slots=True)
 class Settings:
     app_name: str
@@ -35,6 +45,8 @@ class Settings:
     whisper_require_auth: bool
     whisper_max_upload_bytes: int
     whisper_chunk_seconds: int
+    subtitle_font_dirs: tuple[Path, ...]
+    subtitle_font_name: str
     worker_count: int
 
     @classmethod
@@ -48,6 +60,12 @@ class Settings:
 
         ffmpeg_default = str(LOCAL_FFMPEG) if LOCAL_FFMPEG.is_file() else "ffmpeg"
         ffprobe_default = str(LOCAL_FFPROBE) if LOCAL_FFPROBE.is_file() else "ffprobe"
+        default_font_dirs = [
+            PROJECT_ROOT / "fonts",
+            Path("/usr/share/fonts"),
+            Path("/usr/local/share/fonts"),
+            Path.home() / ".local" / "share" / "fonts",
+        ]
 
         return cls(
             app_name=os.getenv("APP_NAME", "Video Caption Studio"),
@@ -70,6 +88,11 @@ class Settings:
                 os.getenv("WHISPER_MAX_UPLOAD_BYTES", str(8 * 1024 * 1024))
             ),
             whisper_chunk_seconds=max(60, int(os.getenv("WHISPER_CHUNK_SECONDS", "480"))),
+            subtitle_font_dirs=_split_paths(
+                os.getenv("SUBTITLE_FONT_DIRS"),
+                default=default_font_dirs,
+            ),
+            subtitle_font_name=os.getenv("SUBTITLE_FONT_NAME", ""),
             worker_count=max(1, int(os.getenv("APP_WORKER_COUNT", "2"))),
         )
 

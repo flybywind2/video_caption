@@ -209,6 +209,8 @@ class TaskProcessor:
             artifacts.srt_path,
             artifacts.rendered_video_path,
             self.settings.ffmpeg_bin,
+            self.settings.subtitle_font_dirs,
+            self.settings.subtitle_font_name,
         )
 
         if self._should_delete(task_id):
@@ -344,6 +346,8 @@ class TaskProcessor:
             srt_path,
             rendered_video_path,
             self.settings.ffmpeg_bin,
+            self.settings.subtitle_font_dirs,
+            self.settings.subtitle_font_name,
         )
 
         if self._should_delete(task_id):

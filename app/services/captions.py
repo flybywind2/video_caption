@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import re
 from typing import Any
+
+
+DEFAULT_SPEAKER_RE = re.compile(r"^SPEAKER[_ -]?\d+$", re.IGNORECASE)
 
 
 def _float(value: Any, default: float = 0.0) -> float:
@@ -20,7 +24,7 @@ def normalize_cues(raw_cues: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         start = max(0.0, _float(cue.get("start"), 0.0))
         end = max(start + 0.05, _float(cue.get("end"), start + 2.0))
-        speaker = str(cue.get("speaker", "")).strip() or None
+        speaker = _normalize_speaker(cue.get("speaker"))
 
         normalized.append(
             {
@@ -34,6 +38,15 @@ def normalize_cues(raw_cues: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     normalized.sort(key=lambda item: (item["start"], item["end"]))
     return normalized
+
+
+def _normalize_speaker(value: Any) -> str | None:
+    speaker = str(value or "").strip()
+    if not speaker:
+        return None
+    if DEFAULT_SPEAKER_RE.match(speaker):
+        return None
+    return speaker
 
 
 def cues_from_transcript(transcript: dict[str, Any]) -> list[dict[str, Any]]:

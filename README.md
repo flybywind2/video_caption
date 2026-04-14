@@ -73,6 +73,8 @@ WHISPER_REQUIRE_AUTH=true
 WHISPER_TIMEOUT_SECONDS=600
 WHISPER_MAX_UPLOAD_BYTES=8388608
 WHISPER_CHUNK_SECONDS=480
+SUBTITLE_FONT_DIRS=/usr/share/fonts:/usr/local/share/fonts:~/.local/share/fonts
+SUBTITLE_FONT_NAME=
 ```
 
 Optional overrides:
@@ -84,8 +86,19 @@ FFPROBE_BIN=ffprobe
 
 `WHISPER_MAX_UPLOAD_BYTES` is the pre-check threshold before the app switches to chunked transcription.
 `WHISPER_CHUNK_SECONDS` controls per-chunk audio duration for fallback uploads.
+`SUBTITLE_FONT_DIRS` is a `:` separated list of font directories used when FFmpeg burns subtitles.
+`SUBTITLE_FONT_NAME` is optional. Set it only if you want to force a specific libass font family.
 If you keep project-local binaries instead, point these values at those absolute paths.
 Keep real credentials in `.env`. The repo includes `.env.example` as the template.
+
+If Korean captions render as broken boxes or missing glyphs, install a Korean-capable font on Ubuntu and keep `SUBTITLE_FONT_DIRS` pointed at it. A common fix is:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y fontconfig fonts-noto-cjk
+```
+
+If you cannot install system packages, place a `.ttf`, `.ttc`, or `.otf` font inside the project `fonts/` directory. That directory is included in the default subtitle font search path.
 
 ## Run
 
