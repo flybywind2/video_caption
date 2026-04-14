@@ -2,6 +2,9 @@ const state = {
   tasks: [],
   selectedTaskId: null,
   detail: null,
+  previewVideoUrl: null,
+  renderedCueSignature: null,
+  renderedTaskId: null,
 };
 
 const APP_BASE = new URL(window.location.href);
@@ -96,6 +99,31 @@ function resolveAppUrl(path) {
   return new URL(path, APP_BASE).toString();
 }
 
+function resolveArtifactUrl(path, version = "") {
+  const url = resolveAppUrl(path);
+  if (!url) {
+    return null;
+  }
+  if (!version) {
+    return url;
+  }
+  const resolved = new URL(url);
+  resolved.searchParams.set("v", version);
+  return resolved.toString();
+}
+
+function cueSignature(cues) {
+  return JSON.stringify(
+    (cues || []).map((cue) => ({
+      id: cue.id,
+      start: cue.start,
+      end: cue.end,
+      speaker: cue.speaker || "",
+      text: cue.text,
+    }))
+  );
+}
+
 function renderTasks() {
   if (!state.tasks.length) {
     taskListEl.innerHTML = `<div class="detail-empty">아직 등록된 작업이 없습니다.</div>`;
@@ -168,6 +196,9 @@ function syncDetailView() {
   if (!state.detail) {
     detailEmptyEl.classList.remove("hidden");
     detailViewEl.classList.add("hidden");
+    state.previewVideoUrl = null;
+    state.renderedCueSignature = null;
+    state.renderedTaskId = null;
     return;
   }
 
@@ -179,16 +210,24 @@ function syncDetailView() {
   detailMetaEl.textContent = `${prettyStatus(task.status)} · ${formatPercent(task.progress)} · ${task.language}`;
   transcriptTextEl.textContent = task.transcript_text || "전사 결과가 준비되면 이곳에 표시됩니다.";
 
-  const videoUrl = resolveAppUrl(task.artifacts.rendered_video || task.artifacts.source_video);
-  if (videoUrl) {
+  const videoUrl = task.artifacts.rendered_video
+    ? resolveArtifactUrl(task.artifacts.rendered_video, task.completed_at || "")
+    : resolveAppUrl(task.artifacts.source_video);
+  if (videoUrl && state.previewVideoUrl !== videoUrl) {
     previewVideoEl.src = videoUrl;
-  } else {
+    state.previewVideoUrl = videoUrl;
+  } else if (!videoUrl && state.previewVideoUrl) {
     previewVideoEl.removeAttribute("src");
+    previewVideoEl.load();
+    state.previewVideoUrl = null;
   }
 
   sourceLink.href = resolveAppUrl(task.artifacts.source_video) || "#";
   renderedLink.href =
-    resolveAppUrl(task.artifacts.rendered_video || task.artifacts.source_video) || "#";
+    resolveArtifactUrl(
+      task.artifacts.rendered_video || task.artifacts.source_video,
+      task.artifacts.rendered_video ? task.completed_at || "" : ""
+    ) || "#";
   transcriptLink.href = resolveAppUrl(task.artifacts.transcript_json) || "#";
   srtLink.href = resolveAppUrl(task.artifacts.srt) || "#";
 
@@ -198,7 +237,14 @@ function syncDetailView() {
   srtLink.style.display = task.artifacts.srt ? "inline" : "none";
 
   retryButton.disabled = task.status !== "failed";
-  renderCueEditor(task.cues || []);
+  const nextCueSignature = cueSignature(task.cues || []);
+  const taskChanged = state.renderedTaskId !== task.id;
+  const isEditingCue = cueEditorEl.contains(document.activeElement);
+  if ((!isEditingCue || taskChanged) && (taskChanged || state.renderedCueSignature !== nextCueSignature)) {
+    renderCueEditor(task.cues || []);
+    state.renderedCueSignature = nextCueSignature;
+    state.renderedTaskId = task.id;
+  }
 }
 
 async function loadHealth() {
@@ -274,6 +320,7 @@ function addCueRow() {
   });
   state.detail.cues = cues;
   renderCueEditor(cues);
+  state.renderedCueSignature = cueSignature(cues);
 }
 
 uploadForm.addEventListener("submit", async (event) => {
@@ -368,6 +415,7 @@ cueEditorEl.addEventListener("click", (event) => {
   const index = Number(button.dataset.index);
   state.detail.cues.splice(index, 1);
   renderCueEditor(state.detail.cues);
+  state.renderedCueSignature = cueSignature(state.detail.cues);
 });
 
 saveCuesButton.addEventListener("click", async () => {
