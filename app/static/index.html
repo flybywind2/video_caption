@@ -8,130 +8,148 @@
   </head>
   <body>
     <div class="page-shell">
-      <header class="hero">
-        <div>
-          <p class="eyebrow">FastAPI + Whisper + FFmpeg</p>
-          <h1>Video Caption Studio</h1>
-          <p class="hero-copy">
-            영상을 올리면 전사, 화자 분리, 자막 렌더링까지 자동 처리하고
-            웹에서 바로 자막을 수정한 뒤 다시 반영할 수 있습니다.
-          </p>
-        </div>
-        <div class="status-panel" id="health-panel">
-          <div class="status-chip">
-            <span class="status-label">Queue</span>
-            <strong id="queue-size">-</strong>
-          </div>
-          <div class="status-chip">
-            <span class="status-label">Workers</span>
-            <strong id="worker-count">-</strong>
-          </div>
-          <div class="status-chip">
-            <span class="status-label">FFmpeg</span>
-            <strong id="ffmpeg-status">-</strong>
-          </div>
-          <div class="status-chip">
-            <span class="status-label">Whisper</span>
-            <strong id="whisper-status">-</strong>
-          </div>
-        </div>
-      </header>
+      <div class="app-shell">
+        <aside class="sidebar">
+          <section class="brand-panel">
+            <p class="eyebrow">FastAPI + Whisper + FFmpeg</p>
+            <h1>Video Caption Studio</h1>
+            <p class="hero-copy">
+              업로드와 작업 관리는 왼쪽에서, 영상 미리보기와 자막 편집은 오른쪽에서
+              동시에 처리할 수 있게 재구성했습니다.
+            </p>
+            <div class="status-panel" id="health-panel">
+              <div class="status-chip">
+                <span class="status-label">Queue</span>
+                <strong id="queue-size">-</strong>
+              </div>
+              <div class="status-chip">
+                <span class="status-label">Workers</span>
+                <strong id="worker-count">-</strong>
+              </div>
+              <div class="status-chip">
+                <span class="status-label">FFmpeg</span>
+                <strong id="ffmpeg-status">-</strong>
+              </div>
+              <div class="status-chip">
+                <span class="status-label">Whisper</span>
+                <strong id="whisper-status">-</strong>
+              </div>
+            </div>
+          </section>
 
-      <main class="layout">
-        <section class="panel upload-panel">
-          <div class="panel-header">
-            <h2>업로드</h2>
-            <p>동영상 업로드 후 바로 작업 큐에 등록됩니다.</p>
-          </div>
+          <section class="panel upload-panel">
+            <div class="panel-header">
+              <h2>업로드</h2>
+              <p>동영상 업로드 후 바로 작업 큐에 등록됩니다.</p>
+            </div>
 
-          <form id="upload-form" class="upload-form">
-            <label class="field">
-              <span>영상 파일</span>
-              <input type="file" name="file" accept="video/*" required />
-            </label>
+            <form id="upload-form" class="upload-form">
+              <label class="field">
+                <span>영상 파일</span>
+                <input type="file" name="file" accept="video/*" required />
+              </label>
 
-            <label class="field">
-              <span>언어 코드</span>
-              <input
-                type="text"
-                name="language"
-                value="ko"
-                placeholder="en, ko, ja ..."
-              />
-            </label>
+              <label class="field">
+                <span>언어 코드</span>
+                <input
+                  type="text"
+                  name="language"
+                  value="ko"
+                  placeholder="en, ko, ja ..."
+                />
+              </label>
 
-            <button type="submit" class="primary-button">작업 생성</button>
-          </form>
+              <button type="submit" class="primary-button">작업 생성</button>
+            </form>
 
-          <div id="upload-message" class="inline-message"></div>
-        </section>
+            <div id="upload-message" class="inline-message"></div>
+          </section>
 
-        <section class="panel tasks-panel">
-          <div class="panel-header">
-            <h2>작업 목록</h2>
-            <p>상태, 진행률, 재시도, 삭제를 여기서 관리합니다.</p>
-          </div>
-          <div id="task-list" class="task-list"></div>
-        </section>
+          <section class="panel tasks-panel">
+            <div class="panel-header">
+              <h2>작업 목록</h2>
+              <p>선택 후 오른쪽에서 바로 미리보기와 편집을 진행합니다.</p>
+            </div>
+            <div id="task-list" class="task-list"></div>
+          </section>
+        </aside>
 
-        <section class="panel detail-panel">
-          <div class="panel-header">
-            <h2>미리보기 및 자막 편집</h2>
-            <p>렌더링된 영상을 보고 자막을 수정한 뒤 다시 반영할 수 있습니다.</p>
-          </div>
-
-          <div id="detail-empty" class="detail-empty">
-            왼쪽에서 작업을 선택하면 상세 정보와 자막 편집기가 열립니다.
-          </div>
-
-          <div id="detail-view" class="detail-view hidden">
-            <div class="detail-topbar">
+        <main class="workspace">
+          <section class="panel detail-panel">
+            <div class="panel-header panel-header-inline">
               <div>
-                <h3 id="detail-title"></h3>
-                <p id="detail-meta"></p>
-              </div>
-              <div class="detail-actions">
-                <button id="retry-button" class="ghost-button" type="button">
-                  실패 작업 재시도
-                </button>
-                <button id="refresh-detail-button" class="ghost-button" type="button">
-                  새로고침
-                </button>
+                <p class="eyebrow section-eyebrow">Workspace</p>
+                <h2>미리보기 및 자막 편집</h2>
+                <p>영상은 고정해서 보고, 자막만 스크롤하며 필요한 구간을 수정합니다.</p>
               </div>
             </div>
 
-            <div class="video-card">
-              <video id="preview-video" controls playsinline></video>
-              <div class="artifact-links">
-                <a id="source-link" target="_blank" rel="noreferrer">원본 영상</a>
-                <a id="rendered-link" target="_blank" rel="noreferrer">자막 영상</a>
-                <a id="transcript-link" target="_blank" rel="noreferrer">전사 JSON</a>
-                <a id="srt-link" target="_blank" rel="noreferrer">SRT 다운로드</a>
+            <div id="detail-empty" class="detail-empty">
+              왼쪽에서 작업을 선택하면 상세 정보와 자막 편집기가 열립니다.
+            </div>
+
+            <div id="detail-view" class="detail-view hidden">
+              <div class="detail-topbar">
+                <div>
+                  <h3 id="detail-title"></h3>
+                  <p id="detail-meta"></p>
+                </div>
+                <div class="detail-actions">
+                  <button id="retry-button" class="ghost-button" type="button">
+                    실패 작업 재시도
+                  </button>
+                  <button id="refresh-detail-button" class="ghost-button" type="button">
+                    새로고침
+                  </button>
+                </div>
+              </div>
+
+              <div class="detail-workspace">
+                <section class="preview-column">
+                  <div class="preview-stack">
+                    <div class="video-card">
+                      <video id="preview-video" controls playsinline></video>
+                      <div class="artifact-links">
+                        <a id="source-link" target="_blank" rel="noreferrer">원본 영상</a>
+                        <a id="rendered-link" target="_blank" rel="noreferrer">자막 영상</a>
+                        <a id="transcript-link" target="_blank" rel="noreferrer">전사 JSON</a>
+                        <a id="srt-link" target="_blank" rel="noreferrer">SRT 다운로드</a>
+                      </div>
+                    </div>
+
+                    <div class="transcript-box">
+                      <h4>전사 텍스트</h4>
+                      <p id="transcript-text"></p>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="editor-column">
+                  <div class="editor-toolbar">
+                    <div>
+                      <h4>자막 큐</h4>
+                      <p class="editor-help">
+                        자막 카드를 누르면 영상이 해당 시작 시점으로 이동합니다.
+                      </p>
+                    </div>
+                    <div class="editor-actions">
+                      <button id="add-cue-button" class="ghost-button" type="button">
+                        자막 줄 추가
+                      </button>
+                      <button id="save-cues-button" class="primary-button" type="button">
+                        저장 후 다시 렌더링
+                      </button>
+                    </div>
+                  </div>
+
+                  <div id="editor-message" class="inline-message"></div>
+                  <div id="cue-editor" class="cue-editor"></div>
+                </section>
               </div>
             </div>
-
-            <div class="transcript-box">
-              <h4>전사 텍스트</h4>
-              <p id="transcript-text"></p>
-            </div>
-
-            <div class="editor-toolbar">
-              <h4>자막 큐</h4>
-              <div class="editor-actions">
-                <button id="add-cue-button" class="ghost-button" type="button">
-                  자막 줄 추가
-                </button>
-                <button id="save-cues-button" class="primary-button" type="button">
-                  저장 후 다시 렌더링
-                </button>
-              </div>
-            </div>
-
-            <div id="editor-message" class="inline-message"></div>
-            <div id="cue-editor" class="cue-editor"></div>
-          </div>
-        </section>
-      </main>
+          </section>
+        </main>
+      </div>
     </div>
 
     <script src="static/app.js" defer></script>

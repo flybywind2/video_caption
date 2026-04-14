@@ -5,6 +5,7 @@ const state = {
   previewVideoUrl: null,
   renderedCueSignature: null,
   renderedTaskId: null,
+  activeCueId: null,
 };
 
 const APP_BASE = new URL(window.location.href);
@@ -61,6 +62,18 @@ function prettyStatus(status) {
     deleting: "Deleting",
   };
   return labels[status] || status;
+}
+
+function formatCueTime(seconds) {
+  const total = Math.max(0, Number(seconds) || 0);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = Math.floor(total % 60);
+  const centiseconds = Math.floor((total - Math.floor(total)) * 100);
+  if (hours > 0) {
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${String(centiseconds).padStart(2, "0")}`;
+  }
+  return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${String(centiseconds).padStart(2, "0")}`;
 }
 
 function escapeHtml(value) {
@@ -124,6 +137,44 @@ function cueSignature(cues) {
   );
 }
 
+function applyActiveCueState() {
+  const rows = cueEditorEl.querySelectorAll(".cue-row");
+  rows.forEach((row) => {
+    row.classList.toggle("active", row.dataset.cueId === state.activeCueId);
+  });
+}
+
+function findCueByTime(cues, currentTime) {
+  return (cues || []).find((cue) => currentTime >= cue.start && currentTime <= cue.end + 0.05) || null;
+}
+
+function syncActiveCueFromPlayback() {
+  if (!state.detail?.cues?.length) {
+    return;
+  }
+  const cue = findCueByTime(state.detail.cues, previewVideoEl.currentTime);
+  const nextCueId = cue?.id || null;
+  if (nextCueId !== state.activeCueId) {
+    state.activeCueId = nextCueId;
+    applyActiveCueState();
+  }
+}
+
+function seekPreview(seconds) {
+  const targetTime = Math.max(0, Number(seconds) || 0);
+  const applySeek = () => {
+    previewVideoEl.currentTime = targetTime;
+    syncActiveCueFromPlayback();
+  };
+
+  if (previewVideoEl.readyState >= 1) {
+    applySeek();
+    return;
+  }
+
+  previewVideoEl.addEventListener("loadedmetadata", applySeek, { once: true });
+}
+
 function renderTasks() {
   if (!state.tasks.length) {
     taskListEl.innerHTML = `<div class="detail-empty">아직 등록된 작업이 없습니다.</div>`;
@@ -146,7 +197,7 @@ function renderTasks() {
             <div class="progress-bar"><span style="width:${formatPercent(task.progress)}"></span></div>
             <p class="task-subtext">${formatPercent(task.progress)} · ${escapeHtml(task.language)}</p>
             ${task.error_message ? `<p class="task-subtext">${escapeHtml(task.error_message)}</p>` : ""}
-            <div class="detail-actions">
+            <div class="task-card-actions">
               <button class="ghost-button" data-action="select" data-task-id="${task.id}" type="button">열기</button>
               <button class="ghost-button" data-action="delete" data-task-id="${task.id}" type="button">삭제</button>
             </div>
@@ -166,7 +217,20 @@ function renderCueEditor(cues) {
   cueEditorEl.innerHTML = cues
     .map(
       (cue, index) => `
-        <div class="cue-row" data-index="${index}">
+        <div
+          class="cue-row ${cue.id === state.activeCueId ? "active" : ""}"
+          data-index="${index}"
+          data-cue-id="${escapeHtml(cue.id)}"
+          data-start="${cue.start}"
+          data-end="${cue.end}"
+          tabindex="0"
+        >
+          <div class="cue-row-head">
+            <button class="cue-seek-button" data-action="seek-cue" data-index="${index}" type="button">
+              ${formatCueTime(cue.start)} → ${formatCueTime(cue.end)}
+            </button>
+            <span class="cue-index">Cue ${String(index + 1).padStart(2, "0")}</span>
+          </div>
           <div class="cue-grid">
             <label class="field">
               <span>시작</span>
@@ -199,6 +263,7 @@ function syncDetailView() {
     state.previewVideoUrl = null;
     state.renderedCueSignature = null;
     state.renderedTaskId = null;
+    state.activeCueId = null;
     return;
   }
 
@@ -206,6 +271,7 @@ function syncDetailView() {
   detailViewEl.classList.remove("hidden");
 
   const task = state.detail;
+  const cueList = task.cues || [];
   detailTitleEl.textContent = task.original_filename;
   detailMetaEl.textContent = `${prettyStatus(task.status)} · ${formatPercent(task.progress)} · ${task.language}`;
   transcriptTextEl.textContent = task.transcript_text || "전사 결과가 준비되면 이곳에 표시됩니다.";
@@ -237,14 +303,18 @@ function syncDetailView() {
   srtLink.style.display = task.artifacts.srt ? "inline" : "none";
 
   retryButton.disabled = task.status !== "failed";
-  const nextCueSignature = cueSignature(task.cues || []);
+  const nextCueSignature = cueSignature(cueList);
   const taskChanged = state.renderedTaskId !== task.id;
   const isEditingCue = cueEditorEl.contains(document.activeElement);
+  if (taskChanged || (state.activeCueId && !cueList.some((cue) => cue.id === state.activeCueId))) {
+    state.activeCueId = cueList[0]?.id || null;
+  }
   if ((!isEditingCue || taskChanged) && (taskChanged || state.renderedCueSignature !== nextCueSignature)) {
-    renderCueEditor(task.cues || []);
+    renderCueEditor(cueList);
     state.renderedCueSignature = nextCueSignature;
     state.renderedTaskId = task.id;
   }
+  applyActiveCueState();
 }
 
 async function loadHealth() {
@@ -319,6 +389,7 @@ function addCueRow() {
     text: "",
   });
   state.detail.cues = cues;
+  state.activeCueId = cues[cues.length - 1].id;
   renderCueEditor(cues);
   state.renderedCueSignature = cueSignature(cues);
 }
@@ -409,13 +480,57 @@ addCueButton.addEventListener("click", () => {
 
 cueEditorEl.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-action='remove-cue']");
-  if (!button || !state.detail) {
+  if (button && state.detail) {
+    const index = Number(button.dataset.index);
+    state.detail.cues.splice(index, 1);
+    state.activeCueId = state.detail.cues[Math.max(0, index - 1)]?.id || state.detail.cues[0]?.id || null;
+    renderCueEditor(state.detail.cues);
+    state.renderedCueSignature = cueSignature(state.detail.cues);
+    applyActiveCueState();
     return;
   }
-  const index = Number(button.dataset.index);
-  state.detail.cues.splice(index, 1);
-  renderCueEditor(state.detail.cues);
-  state.renderedCueSignature = cueSignature(state.detail.cues);
+
+  if (!state.detail) {
+    return;
+  }
+
+  const seekButton = event.target.closest("button[data-action='seek-cue']");
+  const row = event.target.closest(".cue-row");
+  const isFormControl = event.target.closest("input, textarea");
+  if (!row || (!seekButton && isFormControl)) {
+    return;
+  }
+
+  const index = Number(row.dataset.index);
+  const cue = state.detail.cues[index];
+  if (!cue) {
+    return;
+  }
+
+  state.activeCueId = cue.id;
+  applyActiveCueState();
+  seekPreview(cue.start);
+});
+
+cueEditorEl.addEventListener("keydown", (event) => {
+  if ((event.key !== "Enter" && event.key !== " ") || !state.detail) {
+    return;
+  }
+
+  const row = event.target.closest(".cue-row");
+  if (!row || event.target.closest("input, textarea, button")) {
+    return;
+  }
+
+  event.preventDefault();
+  const cue = state.detail.cues[Number(row.dataset.index)];
+  if (!cue) {
+    return;
+  }
+
+  state.activeCueId = cue.id;
+  applyActiveCueState();
+  seekPreview(cue.start);
 });
 
 saveCuesButton.addEventListener("click", async () => {
@@ -455,3 +570,5 @@ window.addEventListener("DOMContentLoaded", async () => {
   await refreshLoop();
   window.setInterval(refreshLoop, 5000);
 });
+
+previewVideoEl.addEventListener("timeupdate", syncActiveCueFromPlayback);
