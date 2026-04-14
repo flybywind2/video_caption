@@ -57,12 +57,11 @@ textarea {
   position: sticky;
   top: 14px;
   height: calc(100vh - 28px);
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 16px;
   min-height: 0;
-  overflow: auto;
-  padding-right: 4px;
+  overflow: hidden;
 }
 
 .brand-panel,
@@ -228,7 +227,7 @@ textarea {
 }
 
 .tasks-panel {
-  flex: 1 1 auto;
+  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -240,9 +239,12 @@ textarea {
   gap: 10px;
   margin-top: 16px;
   flex: 1 1 auto;
-  min-height: 180px;
-  overflow: auto;
-  padding-right: 4px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 6px;
+  padding-bottom: 14px;
+  scrollbar-gutter: stable;
 }
 
 .task-list .detail-empty {
@@ -601,6 +603,8 @@ video {
   .sidebar {
     position: static;
     height: auto;
+    display: flex;
+    flex-direction: column;
     overflow: visible;
   }
 

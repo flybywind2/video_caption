@@ -15,7 +15,7 @@ FastAPI based web service for:
 
 - FastAPI backend with async upload and API endpoints
 - in-process worker queue with configurable concurrency
-- SQLite task registry for persistence across restarts
+- SQLite task registry with task workspace snapshots for persistence across restarts
 - FFmpeg audio extraction and burned subtitle rendering
 - diarized transcription support using the response shape in `request_option.md`
 - browser UI for upload, preview, task tracking, caption editing, rerender, and delete
@@ -59,6 +59,7 @@ cp .env.example .env
 ## Configuration
 
 The app loads environment variables from `.env` in the project root.
+If `APP_STORAGE_ROOT` is omitted, the default storage location is the project-local `data/` directory.
 
 ```bash
 APP_NAME=Video Caption Studio
@@ -134,4 +135,5 @@ Open `http://127.0.0.1:8000`.
 
 - The queue is in-process. For very large deployments, move the worker layer to Redis or a dedicated job system.
 - Browser-based subtitle preview depends on the rendered output being generated successfully by FFmpeg.
+- Task metadata is mirrored into each task workspace, so completed tasks can be recovered into the UI after a restart even if the SQLite file was recreated.
 - If Chromium-style preview tooling is needed later, install the missing system libraries in the runtime image separately.

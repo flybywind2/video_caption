@@ -52,7 +52,7 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         storage_root = Path(
-            os.getenv("APP_STORAGE_ROOT", Path.cwd() / "data")
+            os.getenv("APP_STORAGE_ROOT", PROJECT_ROOT / "data")
         ).expanduser()
         database_path = Path(
             os.getenv("APP_DATABASE_PATH", storage_root / "app.db")

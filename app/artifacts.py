@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
+from uuid import uuid4
 
 
 def safe_filename(filename: str) -> str:
@@ -26,7 +27,6 @@ class TaskArtifacts:
     transcript_path: Path
     captions_path: Path
     srt_path: Path
-    rendered_video_path: Path
 
     def ensure_directories(self) -> None:
         self.task_dir.mkdir(parents=True, exist_ok=True)
@@ -47,8 +47,11 @@ def build_task_artifacts(storage_root: Path, task_id: str, original_filename: st
         transcript_path=task_dir / "transcript.json",
         captions_path=task_dir / "captions.json",
         srt_path=task_dir / "captions.srt",
-        rendered_video_path=task_dir / "rendered.mp4",
     )
+
+
+def new_rendered_video_path(task_dir: Path) -> Path:
+    return task_dir / f"rendered-{uuid4().hex[:12]}.mp4"
 
 
 def task_workspace(storage_root: Path, task_id: str) -> Path:

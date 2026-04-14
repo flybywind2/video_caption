@@ -4,6 +4,7 @@ import mimetypes
 import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -37,9 +38,34 @@ STATIC_DIR = BASE_DIR / "static"
 def ready_artifact_url(task_id: str, artifact_name: str, raw_path: str | None) -> str | None:
     if not raw_path:
         return None
-    if not Path(raw_path).is_file():
+    path = Path(raw_path)
+    if not path.is_file():
         return None
-    return f"api/tasks/{task_id}/artifacts/{artifact_name}"
+    return f"api/tasks/{task_id}/artifacts/{artifact_name}?file={quote(path.name)}"
+
+
+def resolve_artifact_path(
+    raw_path: str,
+    artifact_name: str,
+    requested_filename: str | None,
+) -> Path:
+    current_path = Path(raw_path)
+    if not requested_filename:
+        return current_path
+
+    filename = Path(requested_filename).name
+    if filename != requested_filename:
+        raise HTTPException(status_code=404, detail="Artifact not found.")
+
+    if filename == current_path.name:
+        return current_path
+
+    if artifact_name == "rendered_video":
+        candidate = current_path.parent / filename
+        if candidate.parent == current_path.parent:
+            return candidate
+
+    raise HTTPException(status_code=404, detail="Artifact not found.")
 
 
 def build_artifact_links(task: dict) -> ArtifactLinks:
@@ -108,8 +134,10 @@ def delete_task_files(repository: TaskRepository, task_id: str) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.ensure_directories()
-    repository = TaskRepository(settings.database_path)
+    repository = TaskRepository(settings.database_path, settings.storage_root)
     repository.init_db()
+    repository.recover_from_storage()
+    repository.backfill_snapshots()
     processor = TaskProcessor(settings, repository)
     app.state.repository = repository
     app.state.processor = processor
@@ -185,7 +213,7 @@ async def create_task(
             "transcript_path": str(artifacts.transcript_path),
             "captions_path": str(artifacts.captions_path),
             "srt_path": str(artifacts.srt_path),
-            "rendered_video_path": str(artifacts.rendered_video_path),
+            "rendered_video_path": None,
         }
     )
     await processor.enqueue(task_id, action="transcribe")
@@ -296,7 +324,11 @@ async def get_artifact(task_id: str, artifact_name: str, request: Request) -> Fi
     if not raw_path:
         raise HTTPException(status_code=404, detail="Artifact not found.")
 
-    path = Path(raw_path)
+    path = resolve_artifact_path(
+        raw_path,
+        artifact_name,
+        request.query_params.get("file"),
+    )
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Artifact file is not ready yet.")
 

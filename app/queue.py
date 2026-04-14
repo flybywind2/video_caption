@@ -7,6 +7,7 @@ from typing import Any
 
 from app.artifacts import (
     build_task_artifacts,
+    new_rendered_video_path,
     read_json,
     remove_task_workspace,
     write_json,
@@ -203,11 +204,12 @@ class TaskProcessor:
             progress=0.7,
             message="Rendering subtitled video",
         )
+        rendered_video_path = new_rendered_video_path(artifacts.task_dir)
         await asyncio.to_thread(
             render_subtitles,
             source_path,
             artifacts.srt_path,
-            artifacts.rendered_video_path,
+            rendered_video_path,
             self.settings.ffmpeg_bin,
             self.settings.subtitle_font_dirs,
             self.settings.subtitle_font_name,
@@ -224,6 +226,7 @@ class TaskProcessor:
             progress=1.0,
             message="Subtitled video is ready",
             error_message=None,
+            rendered_video_path=str(rendered_video_path),
             completed_at=utc_now(),
         )
 
@@ -322,7 +325,7 @@ class TaskProcessor:
 
         source_path = Path(task["source_video_path"])
         srt_path = Path(task["srt_path"])
-        rendered_video_path = Path(task["rendered_video_path"])
+        rendered_video_path = new_rendered_video_path(captions_path.parent)
 
         cues = normalize_cues(read_json(captions_path))
         if not cues:
@@ -361,6 +364,7 @@ class TaskProcessor:
             progress=1.0,
             message="Updated subtitle render is ready",
             error_message=None,
+            rendered_video_path=str(rendered_video_path),
             completed_at=utc_now(),
         )
 
