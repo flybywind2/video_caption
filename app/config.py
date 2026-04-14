@@ -30,6 +30,16 @@ def _split_paths(value: str | None, default: list[Path]) -> tuple[Path, ...]:
     )
 
 
+def _subtitle_font_dirs(value: str | None, default: list[Path]) -> tuple[Path, ...]:
+    project_fonts = (PROJECT_ROOT / "fonts").expanduser()
+    configured = list(_split_paths(value, default))
+    ordered: list[Path] = [project_fonts]
+    for path in configured:
+        if path not in ordered:
+            ordered.append(path)
+    return tuple(ordered)
+
+
 @dataclass(slots=True)
 class Settings:
     app_name: str
@@ -88,7 +98,7 @@ class Settings:
                 os.getenv("WHISPER_MAX_UPLOAD_BYTES", str(8 * 1024 * 1024))
             ),
             whisper_chunk_seconds=max(60, int(os.getenv("WHISPER_CHUNK_SECONDS", "480"))),
-            subtitle_font_dirs=_split_paths(
+            subtitle_font_dirs=_subtitle_font_dirs(
                 os.getenv("SUBTITLE_FONT_DIRS"),
                 default=default_font_dirs,
             ),

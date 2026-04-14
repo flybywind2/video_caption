@@ -65,6 +65,9 @@ PREFERRED_HANGUL_FONTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Baekmuk Gulim", ("baekmuk",)),
     ("UnDotum", ("undotum",)),
 )
+FONT_STYLE_SUFFIX_RE = re.compile(
+    r"(?i)(?:[-_ ]?(regular|medium|light|semibold|extrabold|bold|thin|black|italic|variable|vf|variablefont))+$"
+)
 
 
 def _float(value: Any, default: float = 0.0) -> float:
@@ -397,12 +400,33 @@ def _iter_font_files(font_dirs: tuple[Path, ...] | list[Path] | None) -> tuple[P
     return _iter_font_files_cached(_font_dirs_signature(font_dirs))
 
 
+def _guess_font_family_from_path(path: Path) -> str:
+    stem = FONT_STYLE_SUFFIX_RE.sub("", path.stem).strip("-_ ")
+    key = _font_key(stem)
+    for family, patterns in PREFERRED_HANGUL_FONTS:
+        family_key = _font_key(family)
+        if key == family_key or any(pattern in key for pattern in patterns):
+            return family
+
+    if not stem:
+        return ""
+
+    normalized = re.sub(r"[_-]+", " ", stem)
+    normalized = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
 def _guess_hangul_font_name(font_dirs: tuple[Path, ...] | list[Path] | None) -> str:
     for path in _iter_font_files(font_dirs):
         key = _font_key(path.stem)
         for family, patterns in PREFERRED_HANGUL_FONTS:
             if any(pattern in key for pattern in patterns):
                 return family
+    for path in _iter_font_files(font_dirs):
+        guessed_family = _guess_font_family_from_path(path)
+        if guessed_family:
+            return guessed_family
     return ""
 
 
@@ -467,6 +491,30 @@ def _resolve_ass_font_family(
     return "Sans"
 
 
+def _has_resolved_hangul_font(
+    text: str,
+    requested_font_family: str,
+    default_font_family: str,
+    resolved_font_family: str,
+    font_dirs: tuple[Path, ...] | list[Path] | None,
+) -> bool:
+    if not _contains_hangul(text):
+        return True
+
+    for candidate in (
+        resolved_font_family,
+        requested_font_family,
+        default_font_family,
+        _guess_hangul_font_name(font_dirs),
+    ):
+        candidate_key = _font_key(candidate)
+        if not candidate or candidate_key in GENERIC_FONT_FAMILY_KEYS:
+            continue
+        if _font_family_available(candidate, font_dirs):
+            return True
+    return False
+
+
 def build_ass(
     cues: list[dict[str, Any]],
     global_style: dict[str, Any] | None,
@@ -485,6 +533,17 @@ def build_ass(
         default_font_family=default_font_family,
         font_dirs=font_dirs,
     )
+    if script_text and not _has_resolved_hangul_font(
+        script_text,
+        str(base_style.get("font_family") or ""),
+        default_font_family,
+        effective_default_font,
+        font_dirs,
+    ):
+        raise RuntimeError(
+            "No Korean-capable subtitle font was found. Add a Hangul font file to ./fonts "
+            "or set SUBTITLE_FONT_DIRS and SUBTITLE_FONT_NAME."
+        )
 
     lines = [
         "[Script Info]",

@@ -174,6 +174,36 @@ h1 {
   margin-top: 14px;
 }
 
+.upload-panel {
+  padding: 12px 14px;
+}
+
+.upload-panel .panel-header p {
+  margin-top: 4px;
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.upload-panel .upload-form {
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.upload-panel .field {
+  gap: 6px;
+}
+
+.upload-panel input[type="text"],
+.upload-panel input[type="file"] {
+  padding: 9px 11px;
+  border-radius: 14px;
+}
+
+.upload-panel .primary-button {
+  padding: 9px 13px;
+  font-size: 0.92rem;
+}
+
 .field {
   display: grid;
   gap: 8px;
@@ -413,6 +443,14 @@ input[type="color"] {
 
 .editor-actions {
   justify-content: flex-end;
+  flex: 0 0 auto;
+}
+
+#save-cues-button {
+  padding: 9px 13px;
+  font-size: 0.92rem;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 .task-card-actions {
