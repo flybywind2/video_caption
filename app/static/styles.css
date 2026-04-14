@@ -278,27 +278,32 @@ input[type="color"] {
 .tasks-panel {
   height: 100%;
   min-height: 260px;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  padding: 12px 14px 10px;
   overflow: hidden;
+}
+
+.tasks-panel .panel-header p {
+  margin-top: 4px;
+  line-height: 1.4;
 }
 
 .task-list {
   display: grid;
-  gap: 10px;
-  margin-top: 16px;
-  flex: 1 1 auto;
+  gap: 8px;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding-right: 6px;
-  padding-bottom: 14px;
+  padding-right: 4px;
+  padding-bottom: 0;
   scrollbar-gutter: stable;
 }
 
 .task-list .detail-empty {
   margin-top: 0;
-  padding: 24px;
+  padding: 18px;
 }
 
 .task-card {

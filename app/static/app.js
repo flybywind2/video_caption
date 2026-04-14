@@ -1,5 +1,5 @@
 const DEFAULT_GLOBAL_STYLE = {
-  font_family: "auto",
+  font_family: "NanumGothic",
   font_size: 48,
   text_color: "#ffffff",
   outline_color: "#101010",
@@ -7,18 +7,6 @@ const DEFAULT_GLOBAL_STYLE = {
   offset_x: 0,
   offset_y: 0,
 };
-
-const FONT_OPTIONS = [
-  { value: "auto", label: "자동 (서버 한글 폰트 선택)" },
-  { value: "Noto Sans CJK KR", label: "Noto Sans CJK KR" },
-  { value: "Noto Sans KR", label: "Noto Sans KR" },
-  { value: "NanumGothic", label: "NanumGothic" },
-  { value: "Malgun Gothic", label: "Malgun Gothic" },
-  { value: "Droid Sans Fallback", label: "Droid Sans Fallback" },
-  { value: "Baekmuk Gulim", label: "Baekmuk Gulim" },
-  { value: "UnDotum", label: "UnDotum" },
-  { value: "Sans", label: "Sans" },
-];
 
 const ALIGNMENT_OPTIONS = [
   { value: "top-left", label: "상단 왼쪽" },
@@ -73,7 +61,6 @@ const sourceLink = document.getElementById("source-link");
 const renderedLink = document.getElementById("rendered-link");
 const transcriptLink = document.getElementById("transcript-link");
 const srtLink = document.getElementById("srt-link");
-const globalFontFamilyEl = document.getElementById("global-font-family");
 const globalFontSizeEl = document.getElementById("global-font-size");
 const globalAlignmentEl = document.getElementById("global-alignment");
 const globalTextColorEl = document.getElementById("global-text-color");
@@ -182,11 +169,7 @@ function normalizeColor(value, fallback) {
 }
 
 function normalizeFontFamily(value, fallback = DEFAULT_GLOBAL_STYLE.font_family) {
-  const fontFamily = String(value || "").trim();
-  if (!fontFamily || ["auto", "default"].includes(fontFamily.toLowerCase())) {
-    return "auto";
-  }
-  return fontFamily || fallback;
+  return fallback;
 }
 
 function alignmentAnchorPercent(alignment) {
@@ -279,24 +262,8 @@ function alignmentOptionsMarkup(selectedValue) {
   ).join("");
 }
 
-function fontOptionsMarkup(selectedValue) {
-  const normalizedValue = normalizeFontFamily(selectedValue);
-  const options = [...FONT_OPTIONS];
-  if (!options.some((option) => option.value === normalizedValue)) {
-    options.push({ value: normalizedValue, label: `${normalizedValue} (현재값)` });
-  }
-  return options
-    .map(
-      (option) =>
-        `<option value="${option.value}" ${option.value === normalizedValue ? "selected" : ""}>${option.label}</option>`
-    )
-    .join("");
-}
-
 function setGlobalStyleForm(style) {
   const normalized = normalizeGlobalStyle(style);
-  globalFontFamilyEl.innerHTML = fontOptionsMarkup(normalized.font_family);
-  globalFontFamilyEl.value = normalized.font_family;
   globalFontSizeEl.value = String(normalized.font_size);
   globalAlignmentEl.innerHTML = alignmentOptionsMarkup(normalized.alignment);
   globalTextColorEl.value = normalized.text_color;
@@ -307,7 +274,7 @@ function setGlobalStyleForm(style) {
 
 function collectGlobalStyle() {
   return normalizeGlobalStyle({
-    font_family: globalFontFamilyEl.value,
+    font_family: DEFAULT_GLOBAL_STYLE.font_family,
     font_size: globalFontSizeEl.value,
     alignment: globalAlignmentEl.value,
     text_color: globalTextColorEl.value,
@@ -322,9 +289,6 @@ function cueStyleBadgeLabel(mode) {
 }
 
 function setCueStyleInputs(row, style) {
-  const fontSelect = row.querySelector(".cue-font-family");
-  fontSelect.innerHTML = fontOptionsMarkup(style.font_family);
-  fontSelect.value = style.font_family;
   row.querySelector(".cue-font-size").value = String(style.font_size);
   row.querySelector(".cue-alignment").value = style.alignment;
   row.querySelector(".cue-text-color").value = style.text_color;
@@ -335,7 +299,7 @@ function setCueStyleInputs(row, style) {
 
 function collectCueStyle(row) {
   return normalizeGlobalStyle({
-    font_family: row.querySelector(".cue-font-family").value,
+    font_family: DEFAULT_GLOBAL_STYLE.font_family,
     font_size: row.querySelector(".cue-font-size").value,
     alignment: row.querySelector(".cue-alignment").value,
     text_color: row.querySelector(".cue-text-color").value,
@@ -486,15 +450,9 @@ function renderCueEditor(cues, globalStyle) {
           <details class="cue-style-panel">
             <summary>
               <span>세부 스타일</span>
-              <span class="cue-style-summary">폰트, 색상, 위치를 이 자막만 따로 조정합니다.</span>
+              <span class="cue-style-summary">크기, 색상, 위치를 이 자막만 따로 조정합니다.</span>
             </summary>
             <div class="style-grid cue-style-grid">
-              <label class="field">
-                <span>폰트</span>
-                <select class="cue-style-input cue-font-family">
-                  ${fontOptionsMarkup(effectiveStyle.font_family)}
-                </select>
-              </label>
               <label class="field">
                 <span>크기</span>
                 <input type="number" min="18" max="120" step="1" class="cue-style-input cue-font-size" value="${effectiveStyle.font_size}" />
@@ -940,7 +898,6 @@ async function refreshLoop() {
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
-  globalFontFamilyEl.innerHTML = fontOptionsMarkup(DEFAULT_GLOBAL_STYLE.font_family);
   globalAlignmentEl.innerHTML = alignmentOptionsMarkup(DEFAULT_GLOBAL_STYLE.alignment);
   setGlobalStyleForm(DEFAULT_GLOBAL_STYLE);
   await refreshLoop();

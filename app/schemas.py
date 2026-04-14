@@ -18,7 +18,7 @@ AlignmentValue = Literal[
 
 
 class CaptionStyle(BaseModel):
-    font_family: str = "auto"
+    font_family: str = "NanumGothic"
     font_size: int = Field(48, ge=18, le=120)
     text_color: str = "#ffffff"
     outline_color: str = "#101010"

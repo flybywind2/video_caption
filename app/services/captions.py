@@ -23,7 +23,7 @@ GENERIC_FONT_FAMILY_KEYS = {
 }
 
 DEFAULT_CAPTION_STYLE = {
-    "font_family": "auto",
+    "font_family": "NanumGothic",
     "font_size": 48,
     "text_color": "#ffffff",
     "outline_color": "#101010",
@@ -136,14 +136,11 @@ def normalize_caption_style(
         normalized[key] = value
 
     if not partial or "font_family" in style:
-        font_family = str(style.get("font_family") or "").strip()
-        if _font_key(font_family) in {"", "auto", "default"}:
-            font_family = "auto"
         if partial:
             if "font_family" in style:
-                set_if_present("font_family", font_family or "auto")
+                set_if_present("font_family", DEFAULT_CAPTION_STYLE["font_family"])
         else:
-            set_if_present("font_family", font_family or DEFAULT_CAPTION_STYLE["font_family"])
+            set_if_present("font_family", DEFAULT_CAPTION_STYLE["font_family"])
 
     if not partial or style.get("font_size") not in (None, ""):
         font_size = _clamp(
@@ -519,7 +516,7 @@ def build_ass(
     cues: list[dict[str, Any]],
     global_style: dict[str, Any] | None,
     *,
-    default_font_family: str = "auto",
+    default_font_family: str = "NanumGothic",
     play_res_x: int = ASS_PLAY_RES_X,
     play_res_y: int = ASS_PLAY_RES_Y,
     font_dirs: tuple[Path, ...] | list[Path] | None = None,
@@ -528,7 +525,7 @@ def build_ass(
     normalized_cues = normalize_cues(cues, global_style=base_style)
     script_text = "\n".join(cue_to_text(cue) for cue in normalized_cues)
     effective_default_font = _resolve_ass_font_family(
-        str(base_style.get("font_family") or default_font_family or "auto"),
+        str(base_style.get("font_family") or default_font_family or DEFAULT_CAPTION_STYLE["font_family"]),
         text=script_text,
         default_font_family=default_font_family,
         font_dirs=font_dirs,
