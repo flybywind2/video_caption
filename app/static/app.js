@@ -20,6 +20,9 @@ const ALIGNMENT_OPTIONS = [
   { value: "bottom-right", label: "하단 오른쪽" },
 ];
 
+const SIDEBAR_COLLAPSED_KEY = "video-caption-sidebar-collapsed";
+const RUNNING_STATUSES = new Set(["processing", "rendering", "deleting"]);
+
 const state = {
   tasks: [],
   selectedTaskId: null,
@@ -42,6 +45,7 @@ if (!APP_BASE.pathname.endsWith("/")) {
 
 const API_BASE = new URL("api/", APP_BASE);
 
+const pageShellEl = document.querySelector(".page-shell");
 const taskListEl = document.getElementById("task-list");
 const uploadForm = document.getElementById("upload-form");
 const uploadMessageEl = document.getElementById("upload-message");
@@ -73,14 +77,61 @@ const globalOutlineColorEl = document.getElementById("global-outline-color");
 const globalOffsetXEl = document.getElementById("global-offset-x");
 const globalOffsetYEl = document.getElementById("global-offset-y");
 const globalStylePanelEl = document.querySelector(".global-style-panel");
+const sidebarToggleButton = document.getElementById("sidebar-toggle-button");
+const sidebarToggleIconEl = document.getElementById("sidebar-toggle-icon");
+const sidebarToggleLabelEl = document.getElementById("sidebar-toggle-label");
 
-function setMessage(element, message, tone = "") {
+function isSidebarCollapsed() {
+  return pageShellEl?.classList.contains("sidebar-collapsed") || false;
+}
+
+function setSidebarCollapsed(collapsed) {
+  if (!pageShellEl || !sidebarToggleButton || !sidebarToggleIconEl || !sidebarToggleLabelEl) {
+    return;
+  }
+
+  pageShellEl.classList.toggle("sidebar-collapsed", collapsed);
+  sidebarToggleButton.setAttribute("aria-expanded", String(!collapsed));
+  sidebarToggleButton.setAttribute("aria-label", collapsed ? "사이드바 열기" : "사이드바 접기");
+  sidebarToggleButton.title = collapsed ? "사이드바 열기" : "사이드바 접기";
+  sidebarToggleIconEl.textContent = collapsed ? ">>" : "<<";
+  sidebarToggleLabelEl.textContent = collapsed ? "사이드바 열기" : "사이드바 접기";
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
+  } catch (error) {
+    // ignore storage failures
+  }
+}
+
+function restoreSidebarState() {
+  let collapsed = false;
+  try {
+    collapsed = window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+  } catch (error) {
+    collapsed = false;
+  }
+  setSidebarCollapsed(collapsed);
+}
+
+function setMessage(element, message, tone = "", loading = false) {
   element.textContent = message || "";
-  element.className = `inline-message ${tone}`.trim();
+  element.className = ["inline-message", tone, loading ? "loading" : ""].filter(Boolean).join(" ");
 }
 
 function statusClass(status) {
   return `status-badge ${status || "queued"}`;
+}
+
+function isRunningStatus(status) {
+  return RUNNING_STATUSES.has(status || "");
+}
+
+function renderStatusBadge(status) {
+  return `<span class="${statusClass(status)}">${escapeHtml(prettyStatus(status))}</span>`;
+}
+
+function renderDetailStatus(status) {
+  return `<span class="detail-status ${escapeHtml(status || "queued")}">${escapeHtml(prettyStatus(status))}</span>`;
 }
 
 function formatPercent(progress) {
@@ -403,7 +454,7 @@ function renderTasks() {
               <h3>${escapeHtml(task.original_filename)}</h3>
               <p class="task-subtext">${escapeHtml(subtext)}</p>
             </div>
-            <span class="${statusClass(task.status)}">${prettyStatus(task.status)}</span>
+            ${renderStatusBadge(task.status)}
           </div>
           <div class="task-footer">
             <div class="progress-bar"><span style="width:${formatPercent(task.progress)}"></span></div>
@@ -536,7 +587,7 @@ function syncDetailView() {
   const cueList = task.cues || [];
   const globalStyle = normalizeGlobalStyle(task.global_style || {});
   detailTitleEl.textContent = task.original_filename;
-  detailMetaEl.textContent = `${prettyStatus(task.status)} · ${formatPercent(task.progress)} · ${task.language}`;
+  detailMetaEl.innerHTML = `${renderDetailStatus(task.status)} · ${escapeHtml(formatPercent(task.progress))} · ${escapeHtml(task.language)}`;
   transcriptTextEl.textContent = task.transcript_text || "전사 결과가 준비되면 이곳에 표시됩니다.";
 
   const videoUrl = task.artifacts.rendered_video
@@ -808,7 +859,7 @@ uploadForm.addEventListener("submit", async (event) => {
     return;
   }
 
-  setMessage(uploadMessageEl, "파일 확인 중...", "");
+  setMessage(uploadMessageEl, "파일 확인 중...", "", true);
   try {
     const splitModes = await chooseUploadSplitModes(files);
     const baseFormData = new FormData(uploadForm);
@@ -823,7 +874,8 @@ uploadForm.addEventListener("submit", async (event) => {
       chunkedCount > 0
         ? `${files.length}개 파일 업로드 중, ${chunkedCount}개는 분할 등록 준비 중...`
         : `${files.length}개 파일 업로드 중...`,
-      ""
+      "",
+      true
     );
     const result = await requestJson(apiUrl("tasks"), {
       method: "POST",
@@ -1059,8 +1111,13 @@ async function refreshLoop() {
 window.addEventListener("DOMContentLoaded", async () => {
   globalAlignmentEl.innerHTML = alignmentOptionsMarkup(DEFAULT_GLOBAL_STYLE.alignment);
   setGlobalStyleForm(DEFAULT_GLOBAL_STYLE);
+  restoreSidebarState();
   await refreshLoop();
   window.setInterval(refreshLoop, 5000);
 });
 
 previewVideoEl.addEventListener("timeupdate", syncActiveCueFromPlayback);
+
+sidebarToggleButton?.addEventListener("click", () => {
+  setSidebarCollapsed(!isSidebarCollapsed());
+});

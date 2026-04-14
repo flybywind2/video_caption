@@ -16,6 +16,12 @@
   --radius: 24px;
 }
 
+@keyframes live-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -59,7 +65,7 @@ textarea {
   top: 6px;
   height: calc(100vh - 12px);
   display: grid;
-  grid-template-rows: auto auto minmax(260px, 1fr);
+  grid-template-rows: auto auto auto minmax(260px, 1fr);
   gap: 12px;
   min-height: 0;
   overflow-y: auto;
@@ -67,6 +73,7 @@ textarea {
   padding-right: 4px;
 }
 
+.sidebar-toggle-bar,
 .brand-panel,
 .panel,
 .status-chip {
@@ -74,6 +81,33 @@ textarea {
   background: var(--paper);
   border: 1px solid rgba(255, 255, 255, 0.58);
   box-shadow: var(--shadow);
+}
+
+.sidebar-toggle-bar {
+  border-radius: 22px;
+  padding: 8px;
+}
+
+.sidebar-toggle-button {
+  width: 100%;
+  gap: 10px;
+  justify-content: flex-start;
+  padding: 10px 12px;
+  font-weight: 700;
+  background: rgba(31, 27, 22, 0.05);
+}
+
+.sidebar-toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.2rem;
+  font-size: 0.92rem;
+  letter-spacing: -0.06em;
+}
+
+.sidebar-toggle-label {
+  white-space: nowrap;
 }
 
 .brand-panel,
@@ -369,11 +403,31 @@ input[type="color"] {
 }
 
 .status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 5px 9px;
   border-radius: 999px;
   font-size: 0.74rem;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.status-badge.processing::before,
+.status-badge.rendering::before,
+.status-badge.deleting::before,
+.detail-status.processing::before,
+.detail-status.rendering::before,
+.detail-status.deleting::before,
+.inline-message.loading::before {
+  content: "";
+  width: 0.78rem;
+  height: 0.78rem;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: live-spin 0.72s linear infinite;
+  flex: 0 0 auto;
 }
 
 .status-badge.completed {
@@ -393,6 +447,29 @@ input[type="color"] {
 .status-badge.deleting {
   color: var(--warn);
   background: rgba(157, 102, 31, 0.12);
+}
+
+.detail-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.detail-status.completed {
+  color: var(--good);
+}
+
+.detail-status.failed {
+  color: var(--bad);
+}
+
+.detail-status.queued,
+.detail-status.blocked,
+.detail-status.processing,
+.detail-status.rendering,
+.detail-status.deleting {
+  color: var(--warn);
 }
 
 .detail-empty {
@@ -479,6 +556,38 @@ input[type="color"] {
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   gap: 12px;
   min-height: var(--pane-height);
+}
+
+.page-shell.sidebar-collapsed .app-shell {
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+
+.page-shell.sidebar-collapsed .sidebar {
+  grid-template-rows: auto;
+  align-content: start;
+  overflow: visible;
+  padding-right: 0;
+}
+
+.page-shell.sidebar-collapsed .sidebar > :not(.sidebar-toggle-bar) {
+  display: none;
+}
+
+.page-shell.sidebar-collapsed .sidebar-toggle-bar {
+  padding: 8px 6px;
+}
+
+.page-shell.sidebar-collapsed .sidebar-toggle-button {
+  justify-content: center;
+  padding: 10px 8px;
+}
+
+.page-shell.sidebar-collapsed .sidebar-toggle-label {
+  display: none;
+}
+
+.page-shell.sidebar-collapsed .workspace-main {
+  grid-template-columns: minmax(0, 1.06fr) minmax(0, 0.94fr);
 }
 
 .preview-column {
@@ -802,6 +911,9 @@ video {
   min-height: 24px;
   margin-top: 12px;
   color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .inline-message.error {
@@ -812,8 +924,16 @@ video {
   color: var(--good);
 }
 
+.inline-message.loading {
+  color: var(--accent-deep);
+}
+
 @media (max-width: 1200px) {
   .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .page-shell.sidebar-collapsed .app-shell {
     grid-template-columns: 1fr;
   }
 
@@ -824,6 +944,33 @@ video {
     flex-direction: column;
     overflow: visible;
     padding-right: 0;
+  }
+
+  .page-shell.sidebar-collapsed .sidebar {
+    display: flex;
+    overflow: visible;
+  }
+
+  .page-shell.sidebar-collapsed .sidebar > :not(.sidebar-toggle-bar) {
+    display: block;
+  }
+
+  .page-shell.sidebar-collapsed .brand-panel {
+    display: grid;
+  }
+
+  .page-shell.sidebar-collapsed .tasks-panel {
+    display: grid;
+  }
+
+  .page-shell.sidebar-collapsed .sidebar-toggle-button {
+    width: 100%;
+    justify-content: flex-start;
+    padding: 10px 12px;
+  }
+
+  .page-shell.sidebar-collapsed .sidebar-toggle-label {
+    display: inline;
   }
 
   .detail-panel {
@@ -838,6 +985,10 @@ video {
   .workspace-main {
     grid-template-columns: 1fr;
     min-height: auto;
+  }
+
+  .page-shell.sidebar-collapsed .workspace-main {
+    grid-template-columns: 1fr;
   }
 
   .preview-stack {
