@@ -123,8 +123,8 @@ class TaskRepository:
             "srt_path": record.get("srt_path"),
             "rendered_video_path": record.get("rendered_video_path"),
             "error_message": record.get("error_message"),
-            "created_at": record.get("created_at", now),
-            "updated_at": record.get("updated_at", now),
+            "created_at": record.get("created_at") or now,
+            "updated_at": record.get("updated_at") or now,
             "started_at": record.get("started_at"),
             "completed_at": record.get("completed_at"),
         }
