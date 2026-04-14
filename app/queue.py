@@ -37,6 +37,7 @@ from app.services.whisper import (
 
 logger = logging.getLogger("video_caption.queue")
 MIN_RETRY_CHUNK_SECONDS = 15
+INITIAL_413_CHUNK_SECONDS = 240
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,6 +314,7 @@ class TaskProcessor:
                 audio_path,
                 chunk_dir,
                 language,
+                chunk_seconds=self.settings.whisper_chunk_seconds,
                 reason=(
                     "Compressed audio still exceeds the configured upload limit. "
                     "Switching to chunked transcription"
@@ -327,6 +329,10 @@ class TaskProcessor:
                 audio_path,
                 chunk_dir,
                 language,
+                chunk_seconds=min(
+                    self.settings.whisper_chunk_seconds,
+                    INITIAL_413_CHUNK_SECONDS,
+                ),
                 reason="Gateway rejected single audio upload with HTTP 413",
             )
 
@@ -337,6 +343,7 @@ class TaskProcessor:
         chunk_dir: Path,
         language: str,
         *,
+        chunk_seconds: int,
         reason: str,
     ) -> dict[str, Any]:
         audio_size = audio_path.stat().st_size if audio_path.exists() else 0
@@ -346,7 +353,7 @@ class TaskProcessor:
             progress=0.4,
             message=(
                 f"{reason}. Splitting audio into "
-                f"{self.settings.whisper_chunk_seconds // 60}-minute chunks"
+                f"{max(1, round(chunk_seconds / 60))}-minute chunks"
             ),
         )
 
@@ -354,14 +361,14 @@ class TaskProcessor:
             split_audio,
             audio_path,
             chunk_dir,
-            self.settings.whisper_chunk_seconds,
+            chunk_seconds,
             self.settings.ffmpeg_bin,
         )
         logger.info(
             "task=%s step=chunk_transcribe_start chunks=%s chunk_seconds=%s audio=%s audio_bytes=%s",
             task_id,
             len(chunk_paths),
-            self.settings.whisper_chunk_seconds,
+            chunk_seconds,
             audio_path.name,
             audio_size,
         )
@@ -386,7 +393,7 @@ class TaskProcessor:
                 chunk_path,
                 chunk_dir / f"{chunk_path.stem}-nested",
                 language,
-                self.settings.whisper_chunk_seconds,
+                chunk_seconds,
                 chunk_label=f"{index}/{total_chunks}",
                 depth=1,
             )

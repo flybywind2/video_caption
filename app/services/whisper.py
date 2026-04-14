@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +12,21 @@ from app.config import Settings
 
 class WhisperPayloadTooLargeError(RuntimeError):
     pass
+
+
+logger = logging.getLogger("video_caption.whisper")
+RETRYABLE_HTTP_STATUS_CODES = {502, 503, 504}
+
+
+def _retry_delay(base_seconds: float, attempt: int) -> float:
+    return max(0.5, base_seconds) * max(1, attempt)
+
+
+def _response_excerpt(response: httpx.Response, limit: int = 180) -> str:
+    text = (response.text or "").strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit].rstrip()}..."
 
 
 class WhisperClient:
@@ -53,25 +70,70 @@ class WhisperClient:
             connect=30.0,
         )
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            with audio_path.open("rb") as handle:
-                response = await client.post(
-                    self.settings.whisper_api_url,
-                    headers=self._headers(),
-                    data=data,
-                    files={"file": (audio_path.name, handle, "audio/mpeg")},
+        attempts = self.settings.whisper_retry_attempts
+
+        for attempt in range(1, attempts + 1):
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    with audio_path.open("rb") as handle:
+                        response = await client.post(
+                            self.settings.whisper_api_url,
+                            headers=self._headers(),
+                            data=data,
+                            files={"file": (audio_path.name, handle, "audio/mpeg")},
+                        )
+            except httpx.RequestError as exc:
+                if attempt >= attempts:
+                    raise RuntimeError(
+                        "Whisper API request failed after "
+                        f"{attempts} attempts. Last network error: {exc}"
+                    ) from exc
+                logger.warning(
+                    "whisper_request_retry file=%s attempt=%s/%s reason=%s",
+                    audio_path.name,
+                    attempt,
+                    attempts,
+                    exc,
+                )
+                await asyncio.sleep(
+                    _retry_delay(self.settings.whisper_retry_backoff_seconds, attempt)
+                )
+                continue
+
+            if response.status_code == 413:
+                raise WhisperPayloadTooLargeError(
+                    f"Whisper upload rejected {audio_path.name} with HTTP 413."
                 )
 
-        if response.status_code == 413:
-            raise WhisperPayloadTooLargeError(
-                f"Whisper upload rejected {audio_path.name} with HTTP 413."
-            )
+            if response.status_code in RETRYABLE_HTTP_STATUS_CODES:
+                if attempt >= attempts:
+                    excerpt = _response_excerpt(response)
+                    suffix = f" Response: {excerpt}" if excerpt else ""
+                    raise RuntimeError(
+                        "Whisper API returned "
+                        f"HTTP {response.status_code} after {attempts} attempts. "
+                        "The upstream gateway appears unavailable; try again shortly."
+                        f"{suffix}"
+                    )
+                logger.warning(
+                    "whisper_gateway_retry file=%s attempt=%s/%s status=%s",
+                    audio_path.name,
+                    attempt,
+                    attempts,
+                    response.status_code,
+                )
+                await asyncio.sleep(
+                    _retry_delay(self.settings.whisper_retry_backoff_seconds, attempt)
+                )
+                continue
 
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise RuntimeError("Whisper API returned an unexpected payload.")
-        return payload
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise RuntimeError("Whisper API returned an unexpected payload.")
+            return payload
+
+        raise RuntimeError("Whisper transcription failed without a recoverable response.")
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:

@@ -78,6 +78,8 @@ WHISPER_REQUIRE_AUTH=true
 WHISPER_TIMEOUT_SECONDS=600
 WHISPER_MAX_UPLOAD_BYTES=8388608
 WHISPER_CHUNK_SECONDS=480
+WHISPER_RETRY_ATTEMPTS=3
+WHISPER_RETRY_BACKOFF_SECONDS=2.0
 UPLOAD_SPLIT_THRESHOLD_BYTES=524288000
 UPLOAD_SPLIT_PROMPT_SECONDS=1200
 UPLOAD_SPLIT_CHUNK_SECONDS=600
@@ -94,6 +96,8 @@ FFPROBE_BIN=ffprobe
 
 `WHISPER_MAX_UPLOAD_BYTES` is the pre-check threshold before the app switches to chunked transcription.
 `WHISPER_CHUNK_SECONDS` controls per-chunk audio duration for fallback uploads.
+`WHISPER_RETRY_ATTEMPTS` controls how many times transient Whisper gateway failures (`502/503/504`) are retried.
+`WHISPER_RETRY_BACKOFF_SECONDS` controls the linear backoff between those retries.
 `UPLOAD_SPLIT_THRESHOLD_BYTES` is the browser prompt threshold for suggesting split registration.
 `UPLOAD_SPLIT_PROMPT_SECONDS` is the duration threshold for suggesting split registration.
 `UPLOAD_SPLIT_CHUNK_SECONDS` controls how long each split video part should be.

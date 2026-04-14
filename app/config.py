@@ -55,6 +55,8 @@ class Settings:
     whisper_require_auth: bool
     whisper_max_upload_bytes: int
     whisper_chunk_seconds: int
+    whisper_retry_attempts: int
+    whisper_retry_backoff_seconds: float
     upload_split_threshold_bytes: int
     upload_split_prompt_seconds: int
     upload_split_chunk_seconds: int
@@ -101,6 +103,14 @@ class Settings:
                 os.getenv("WHISPER_MAX_UPLOAD_BYTES", str(8 * 1024 * 1024))
             ),
             whisper_chunk_seconds=max(60, int(os.getenv("WHISPER_CHUNK_SECONDS", "480"))),
+            whisper_retry_attempts=max(
+                1,
+                int(os.getenv("WHISPER_RETRY_ATTEMPTS", "3")),
+            ),
+            whisper_retry_backoff_seconds=max(
+                0.5,
+                float(os.getenv("WHISPER_RETRY_BACKOFF_SECONDS", "2.0")),
+            ),
             upload_split_threshold_bytes=max(
                 50 * 1024 * 1024,
                 int(os.getenv("UPLOAD_SPLIT_THRESHOLD_BYTES", str(500 * 1024 * 1024))),
