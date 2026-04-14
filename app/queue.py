@@ -211,7 +211,8 @@ class TaskProcessor:
             build_ass(
                 caption_document["cues"],
                 caption_document["global_style"],
-                default_font_family=self.settings.subtitle_font_name or "Sans",
+                default_font_family=self.settings.subtitle_font_name or "auto",
+                font_dirs=self.settings.subtitle_font_dirs,
             ),
         )
 
@@ -361,7 +362,8 @@ class TaskProcessor:
             build_ass(
                 caption_document["cues"],
                 caption_document["global_style"],
-                default_font_family=self.settings.subtitle_font_name or "Sans",
+                default_font_family=self.settings.subtitle_font_name or "auto",
+                font_dirs=self.settings.subtitle_font_dirs,
             ),
         )
 

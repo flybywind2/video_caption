@@ -1,12 +1,24 @@
 const DEFAULT_GLOBAL_STYLE = {
-  font_family: "Sans",
+  font_family: "auto",
   font_size: 48,
   text_color: "#ffffff",
   outline_color: "#101010",
   alignment: "bottom-center",
-  position_x: 50,
-  position_y: 90,
+  offset_x: 0,
+  offset_y: 0,
 };
+
+const FONT_OPTIONS = [
+  { value: "auto", label: "자동 (서버 한글 폰트 선택)" },
+  { value: "Noto Sans CJK KR", label: "Noto Sans CJK KR" },
+  { value: "Noto Sans KR", label: "Noto Sans KR" },
+  { value: "NanumGothic", label: "NanumGothic" },
+  { value: "Malgun Gothic", label: "Malgun Gothic" },
+  { value: "Droid Sans Fallback", label: "Droid Sans Fallback" },
+  { value: "Baekmuk Gulim", label: "Baekmuk Gulim" },
+  { value: "UnDotum", label: "UnDotum" },
+  { value: "Sans", label: "Sans" },
+];
 
 const ALIGNMENT_OPTIONS = [
   { value: "top-left", label: "상단 왼쪽" },
@@ -56,6 +68,7 @@ const retryButton = document.getElementById("retry-button");
 const refreshDetailButton = document.getElementById("refresh-detail-button");
 const saveCuesButton = document.getElementById("save-cues-button");
 const applyGlobalStyleButton = document.getElementById("apply-global-style-button");
+const resetGlobalStyleButton = document.getElementById("reset-global-style-button");
 const sourceLink = document.getElementById("source-link");
 const renderedLink = document.getElementById("rendered-link");
 const transcriptLink = document.getElementById("transcript-link");
@@ -65,8 +78,8 @@ const globalFontSizeEl = document.getElementById("global-font-size");
 const globalAlignmentEl = document.getElementById("global-alignment");
 const globalTextColorEl = document.getElementById("global-text-color");
 const globalOutlineColorEl = document.getElementById("global-outline-color");
-const globalPositionXEl = document.getElementById("global-position-x");
-const globalPositionYEl = document.getElementById("global-position-y");
+const globalOffsetXEl = document.getElementById("global-offset-x");
+const globalOffsetYEl = document.getElementById("global-offset-y");
 const globalStylePanelEl = document.querySelector(".global-style-panel");
 
 function setMessage(element, message, tone = "") {
@@ -169,21 +182,59 @@ function normalizeColor(value, fallback) {
 }
 
 function normalizeFontFamily(value, fallback = DEFAULT_GLOBAL_STYLE.font_family) {
-  return String(value || "").trim() || fallback;
+  const fontFamily = String(value || "").trim();
+  if (!fontFamily || ["auto", "default"].includes(fontFamily.toLowerCase())) {
+    return "auto";
+  }
+  return fontFamily || fallback;
+}
+
+function alignmentAnchorPercent(alignment) {
+  const map = {
+    "top-left": [10, 12],
+    "top-center": [50, 12],
+    "top-right": [90, 12],
+    "middle-left": [10, 50],
+    "middle-center": [50, 50],
+    "middle-right": [90, 50],
+    "bottom-left": [10, 90],
+    "bottom-center": [50, 90],
+    "bottom-right": [90, 90],
+  };
+  return map[alignment] || map[DEFAULT_GLOBAL_STYLE.alignment];
+}
+
+function legacyOffset(value, anchorPercent, pixelsPerPercent, fallback) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+  const clampedPercent = clampNumber(value, 0, 100, anchorPercent);
+  return Math.round((clampedPercent - anchorPercent) * pixelsPerPercent);
 }
 
 function normalizeGlobalStyle(style = {}) {
   const alignment = ALIGNMENT_OPTIONS.some((option) => option.value === style.alignment)
     ? style.alignment
     : DEFAULT_GLOBAL_STYLE.alignment;
+  const [anchorX, anchorY] = alignmentAnchorPercent(alignment);
   return {
     font_family: normalizeFontFamily(style.font_family),
     font_size: clampNumber(style.font_size, 18, 120, DEFAULT_GLOBAL_STYLE.font_size),
     text_color: normalizeColor(style.text_color, DEFAULT_GLOBAL_STYLE.text_color),
     outline_color: normalizeColor(style.outline_color, DEFAULT_GLOBAL_STYLE.outline_color),
     alignment,
-    position_x: clampNumber(style.position_x, 0, 100, DEFAULT_GLOBAL_STYLE.position_x),
-    position_y: clampNumber(style.position_y, 0, 100, DEFAULT_GLOBAL_STYLE.position_y),
+    offset_x: clampNumber(
+      style.offset_x,
+      -1920,
+      1920,
+      legacyOffset(style.position_x, anchorX, 19.2, DEFAULT_GLOBAL_STYLE.offset_x)
+    ),
+    offset_y: clampNumber(
+      style.offset_y,
+      -1080,
+      1080,
+      legacyOffset(style.position_y, anchorY, 10.8, DEFAULT_GLOBAL_STYLE.offset_y)
+    ),
   };
 }
 
@@ -228,15 +279,30 @@ function alignmentOptionsMarkup(selectedValue) {
   ).join("");
 }
 
+function fontOptionsMarkup(selectedValue) {
+  const normalizedValue = normalizeFontFamily(selectedValue);
+  const options = [...FONT_OPTIONS];
+  if (!options.some((option) => option.value === normalizedValue)) {
+    options.push({ value: normalizedValue, label: `${normalizedValue} (현재값)` });
+  }
+  return options
+    .map(
+      (option) =>
+        `<option value="${option.value}" ${option.value === normalizedValue ? "selected" : ""}>${option.label}</option>`
+    )
+    .join("");
+}
+
 function setGlobalStyleForm(style) {
   const normalized = normalizeGlobalStyle(style);
+  globalFontFamilyEl.innerHTML = fontOptionsMarkup(normalized.font_family);
   globalFontFamilyEl.value = normalized.font_family;
   globalFontSizeEl.value = String(normalized.font_size);
   globalAlignmentEl.innerHTML = alignmentOptionsMarkup(normalized.alignment);
   globalTextColorEl.value = normalized.text_color;
   globalOutlineColorEl.value = normalized.outline_color;
-  globalPositionXEl.value = String(normalized.position_x);
-  globalPositionYEl.value = String(normalized.position_y);
+  globalOffsetXEl.value = String(normalized.offset_x);
+  globalOffsetYEl.value = String(normalized.offset_y);
 }
 
 function collectGlobalStyle() {
@@ -246,8 +312,8 @@ function collectGlobalStyle() {
     alignment: globalAlignmentEl.value,
     text_color: globalTextColorEl.value,
     outline_color: globalOutlineColorEl.value,
-    position_x: globalPositionXEl.value,
-    position_y: globalPositionYEl.value,
+    offset_x: globalOffsetXEl.value,
+    offset_y: globalOffsetYEl.value,
   });
 }
 
@@ -256,13 +322,15 @@ function cueStyleBadgeLabel(mode) {
 }
 
 function setCueStyleInputs(row, style) {
-  row.querySelector(".cue-font-family").value = style.font_family;
+  const fontSelect = row.querySelector(".cue-font-family");
+  fontSelect.innerHTML = fontOptionsMarkup(style.font_family);
+  fontSelect.value = style.font_family;
   row.querySelector(".cue-font-size").value = String(style.font_size);
   row.querySelector(".cue-alignment").value = style.alignment;
   row.querySelector(".cue-text-color").value = style.text_color;
   row.querySelector(".cue-outline-color").value = style.outline_color;
-  row.querySelector(".cue-position-x").value = String(style.position_x);
-  row.querySelector(".cue-position-y").value = String(style.position_y);
+  row.querySelector(".cue-offset-x").value = String(style.offset_x);
+  row.querySelector(".cue-offset-y").value = String(style.offset_y);
 }
 
 function collectCueStyle(row) {
@@ -272,8 +340,8 @@ function collectCueStyle(row) {
     alignment: row.querySelector(".cue-alignment").value,
     text_color: row.querySelector(".cue-text-color").value,
     outline_color: row.querySelector(".cue-outline-color").value,
-    position_x: row.querySelector(".cue-position-x").value,
-    position_y: row.querySelector(".cue-position-y").value,
+    offset_x: row.querySelector(".cue-offset-x").value,
+    offset_y: row.querySelector(".cue-offset-y").value,
   });
 }
 
@@ -423,7 +491,9 @@ function renderCueEditor(cues, globalStyle) {
             <div class="style-grid cue-style-grid">
               <label class="field">
                 <span>폰트</span>
-                <input type="text" class="cue-style-input cue-font-family" value="${escapeHtml(effectiveStyle.font_family)}" />
+                <select class="cue-style-input cue-font-family">
+                  ${fontOptionsMarkup(effectiveStyle.font_family)}
+                </select>
               </label>
               <label class="field">
                 <span>크기</span>
@@ -444,12 +514,12 @@ function renderCueEditor(cues, globalStyle) {
                 <input type="color" class="cue-style-input cue-outline-color" value="${effectiveStyle.outline_color}" />
               </label>
               <label class="field">
-                <span>X 위치 (%)</span>
-                <input type="number" min="0" max="100" step="1" class="cue-style-input cue-position-x" value="${effectiveStyle.position_x}" />
+                <span>X 미세조정 (px)</span>
+                <input type="number" min="-960" max="960" step="1" class="cue-style-input cue-offset-x" value="${effectiveStyle.offset_x}" />
               </label>
               <label class="field">
-                <span>Y 위치 (%)</span>
-                <input type="number" min="0" max="100" step="1" class="cue-style-input cue-position-y" value="${effectiveStyle.position_y}" />
+                <span>Y 미세조정 (px)</span>
+                <input type="number" min="-540" max="540" step="1" class="cue-style-input cue-offset-y" value="${effectiveStyle.offset_y}" />
               </label>
             </div>
             <div class="cue-style-actions">
@@ -714,6 +784,21 @@ globalStylePanelEl.addEventListener("input", () => {
   syncGlobalStyleRows();
 });
 
+globalStylePanelEl.addEventListener("change", () => {
+  syncGlobalStyleRows();
+});
+
+resetGlobalStyleButton.addEventListener("click", () => {
+  setGlobalStyleForm(DEFAULT_GLOBAL_STYLE);
+  if (!state.detail) {
+    return;
+  }
+  state.detail.global_style = collectGlobalStyle();
+  syncGlobalStyleRows();
+  state.renderedDetailSignature = detailSignature(state.detail);
+  setMessage(editorMessageEl, "전체 스타일 값을 기본값으로 되돌렸습니다. 저장하면 렌더에 반영됩니다.", "success");
+});
+
 applyGlobalStyleButton.addEventListener("click", () => {
   if (!state.detail) {
     return;
@@ -785,7 +870,7 @@ cueEditorEl.addEventListener("click", (event) => {
   seekPreview(cue.start);
 });
 
-cueEditorEl.addEventListener("input", (event) => {
+function handleCueStyleInput(event) {
   const row = event.target.closest(".cue-row");
   if (!row) {
     return;
@@ -793,7 +878,10 @@ cueEditorEl.addEventListener("input", (event) => {
   if (event.target.classList.contains("cue-style-input")) {
     updateCueStyleMode(row, "custom");
   }
-});
+}
+
+cueEditorEl.addEventListener("input", handleCueStyleInput);
+cueEditorEl.addEventListener("change", handleCueStyleInput);
 
 cueEditorEl.addEventListener("keydown", (event) => {
   if ((event.key !== "Enter" && event.key !== " ") || !state.detail) {
@@ -852,6 +940,7 @@ async function refreshLoop() {
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
+  globalFontFamilyEl.innerHTML = fontOptionsMarkup(DEFAULT_GLOBAL_STYLE.font_family);
   globalAlignmentEl.innerHTML = alignmentOptionsMarkup(DEFAULT_GLOBAL_STYLE.alignment);
   setGlobalStyleForm(DEFAULT_GLOBAL_STYLE);
   await refreshLoop();

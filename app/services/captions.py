@@ -1,20 +1,35 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 
 DEFAULT_SPEAKER_RE = re.compile(r"^SPEAKER[_ -]?\d+$", re.IGNORECASE)
 HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+FONT_SUFFIXES = (".ttf", ".otf", ".ttc")
+ASS_PLAY_RES_X = 1920
+ASS_PLAY_RES_Y = 1080
+GENERIC_FONT_FAMILY_KEYS = {
+    "",
+    "auto",
+    "default",
+    "sans",
+    "sansserif",
+    "serif",
+    "monospace",
+    "systemui",
+}
 
 DEFAULT_CAPTION_STYLE = {
-    "font_family": "Sans",
+    "font_family": "auto",
     "font_size": 48,
     "text_color": "#ffffff",
     "outline_color": "#101010",
     "alignment": "bottom-center",
-    "position_x": 50,
-    "position_y": 90,
+    "offset_x": 0,
+    "offset_y": 0,
 }
 
 ALIGNMENT_TO_ASS = {
@@ -28,6 +43,28 @@ ALIGNMENT_TO_ASS = {
     "top-center": 8,
     "top-right": 9,
 }
+
+ALIGNMENT_TO_PERCENT = {
+    "top-left": (10, 12),
+    "top-center": (50, 12),
+    "top-right": (90, 12),
+    "middle-left": (10, 50),
+    "middle-center": (50, 50),
+    "middle-right": (90, 50),
+    "bottom-left": (10, 90),
+    "bottom-center": (50, 90),
+    "bottom-right": (90, 90),
+}
+
+PREFERRED_HANGUL_FONTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Noto Sans CJK KR", ("notosanscjk", "notoserifcjk", "sourcehansans", "sourcehanserif")),
+    ("Noto Sans KR", ("notosanskr",)),
+    ("NanumGothic", ("nanumgothic", "nanummyeongjo", "nanumbarungothic")),
+    ("Malgun Gothic", ("malgun",)),
+    ("Droid Sans Fallback", ("droidsansfallback",)),
+    ("Baekmuk Gulim", ("baekmuk",)),
+    ("UnDotum", ("undotum",)),
+)
 
 
 def _float(value: Any, default: float = 0.0) -> float:
@@ -48,6 +85,38 @@ def _clamp(value: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(maximum, value))
 
 
+def _font_key(value: str) -> str:
+    return "".join(char for char in str(value or "").lower() if char.isalnum())
+
+
+def _contains_hangul(value: str) -> bool:
+    return any(
+        ("\u1100" <= char <= "\u11ff")
+        or ("\u3130" <= char <= "\u318f")
+        or ("\uac00" <= char <= "\ud7a3")
+        for char in str(value or "")
+    )
+
+
+def _alignment_anchor_percent(alignment: str) -> tuple[int, int]:
+    return ALIGNMENT_TO_PERCENT.get(alignment, ALIGNMENT_TO_PERCENT[DEFAULT_CAPTION_STYLE["alignment"]])
+
+
+def _legacy_offsets_from_position(style: dict[str, Any], alignment: str) -> tuple[int | None, int | None]:
+    anchor_x, anchor_y = _alignment_anchor_percent(alignment)
+    offset_x: int | None = None
+    offset_y: int | None = None
+
+    if style.get("position_x") not in (None, ""):
+        position_x = _clamp(_int(style.get("position_x"), anchor_x), 0, 100)
+        offset_x = round(ASS_PLAY_RES_X * (position_x - anchor_x) / 100)
+    if style.get("position_y") not in (None, ""):
+        position_y = _clamp(_int(style.get("position_y"), anchor_y), 0, 100)
+        offset_y = round(ASS_PLAY_RES_Y * (position_y - anchor_y) / 100)
+
+    return offset_x, offset_y
+
+
 def default_caption_style() -> dict[str, Any]:
     return dict(DEFAULT_CAPTION_STYLE)
 
@@ -61,16 +130,15 @@ def normalize_caption_style(
     normalized = {} if partial else default_caption_style()
 
     def set_if_present(key: str, value: Any) -> None:
-        if partial:
-            normalized[key] = value
-        else:
-            normalized[key] = value
+        normalized[key] = value
 
     if not partial or "font_family" in style:
         font_family = str(style.get("font_family") or "").strip()
+        if _font_key(font_family) in {"", "auto", "default"}:
+            font_family = "auto"
         if partial:
-            if font_family:
-                set_if_present("font_family", font_family)
+            if "font_family" in style:
+                set_if_present("font_family", font_family or "auto")
         else:
             set_if_present("font_family", font_family or DEFAULT_CAPTION_STYLE["font_family"])
 
@@ -96,6 +164,7 @@ def normalize_caption_style(
         )
         set_if_present("outline_color", outline_color)
 
+    alignment = DEFAULT_CAPTION_STYLE["alignment"]
     if not partial or style.get("alignment") not in (None, ""):
         alignment = str(
             style.get("alignment") or DEFAULT_CAPTION_STYLE["alignment"]
@@ -103,22 +172,26 @@ def normalize_caption_style(
         if alignment not in ALIGNMENT_TO_ASS:
             alignment = DEFAULT_CAPTION_STYLE["alignment"]
         set_if_present("alignment", alignment)
+    elif partial:
+        alignment = str(style.get("alignment") or DEFAULT_CAPTION_STYLE["alignment"]).strip()
+        if alignment not in ALIGNMENT_TO_ASS:
+            alignment = DEFAULT_CAPTION_STYLE["alignment"]
 
-    if not partial or style.get("position_x") not in (None, ""):
-        position_x = _clamp(
-            _int(style.get("position_x"), DEFAULT_CAPTION_STYLE["position_x"]),
-            0,
-            100,
-        )
-        set_if_present("position_x", position_x)
+    legacy_offset_x, legacy_offset_y = _legacy_offsets_from_position(style, alignment)
 
-    if not partial or style.get("position_y") not in (None, ""):
-        position_y = _clamp(
-            _int(style.get("position_y"), DEFAULT_CAPTION_STYLE["position_y"]),
-            0,
-            100,
-        )
-        set_if_present("position_y", position_y)
+    if not partial or style.get("offset_x") not in (None, "") or legacy_offset_x is not None:
+        if style.get("offset_x") not in (None, ""):
+            offset_x = _clamp(_int(style.get("offset_x"), 0), -ASS_PLAY_RES_X, ASS_PLAY_RES_X)
+        else:
+            offset_x = _clamp(legacy_offset_x or DEFAULT_CAPTION_STYLE["offset_x"], -ASS_PLAY_RES_X, ASS_PLAY_RES_X)
+        set_if_present("offset_x", offset_x)
+
+    if not partial or style.get("offset_y") not in (None, "") or legacy_offset_y is not None:
+        if style.get("offset_y") not in (None, ""):
+            offset_y = _clamp(_int(style.get("offset_y"), 0), -ASS_PLAY_RES_Y, ASS_PLAY_RES_Y)
+        else:
+            offset_y = _clamp(legacy_offset_y or DEFAULT_CAPTION_STYLE["offset_y"], -ASS_PLAY_RES_Y, ASS_PLAY_RES_Y)
+        set_if_present("offset_y", offset_y)
 
     return normalized
 
@@ -300,19 +373,117 @@ def build_srt(cues: list[dict[str, Any]]) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+def _font_dirs_signature(font_dirs: tuple[Path, ...] | list[Path] | None) -> tuple[str, ...]:
+    return tuple(str(Path(entry).expanduser()) for entry in font_dirs or [])
+
+
+@lru_cache(maxsize=8)
+def _iter_font_files_cached(font_dirs_signature: tuple[str, ...]) -> tuple[Path, ...]:
+    paths: list[Path] = []
+    for raw_path in font_dirs_signature:
+        path = Path(raw_path)
+        if not path.is_dir():
+            continue
+        try:
+            for candidate in path.rglob("*"):
+                if candidate.is_file() and candidate.suffix.lower() in FONT_SUFFIXES:
+                    paths.append(candidate)
+        except OSError:
+            continue
+    return tuple(paths)
+
+
+def _iter_font_files(font_dirs: tuple[Path, ...] | list[Path] | None) -> tuple[Path, ...]:
+    return _iter_font_files_cached(_font_dirs_signature(font_dirs))
+
+
+def _guess_hangul_font_name(font_dirs: tuple[Path, ...] | list[Path] | None) -> str:
+    for path in _iter_font_files(font_dirs):
+        key = _font_key(path.stem)
+        for family, patterns in PREFERRED_HANGUL_FONTS:
+            if any(pattern in key for pattern in patterns):
+                return family
+    return ""
+
+
+def _font_family_patterns(font_family: str) -> tuple[str, ...]:
+    key = _font_key(font_family)
+    patterns = [key]
+    for family, aliases in PREFERRED_HANGUL_FONTS:
+        family_key = _font_key(family)
+        if key == family_key or any(alias in key or key in alias for alias in aliases):
+            patterns.extend([family_key, *aliases])
+            break
+    return tuple(pattern for pattern in patterns if pattern)
+
+
+def _font_family_available(
+    font_family: str,
+    font_dirs: tuple[Path, ...] | list[Path] | None,
+) -> bool:
+    patterns = _font_family_patterns(font_family)
+    if not patterns:
+        return False
+    for path in _iter_font_files(font_dirs):
+        key = _font_key(path.stem)
+        if any(pattern in key or key in pattern for pattern in patterns):
+            return True
+    return False
+
+
+def _resolve_ass_font_family(
+    requested_font_family: str,
+    *,
+    text: str,
+    default_font_family: str,
+    font_dirs: tuple[Path, ...] | list[Path] | None,
+) -> str:
+    requested = str(requested_font_family or "").strip()
+    default = str(default_font_family or "").strip()
+    requested_key = _font_key(requested)
+    default_key = _font_key(default)
+    fallback = _guess_hangul_font_name(font_dirs)
+
+    if not _contains_hangul(text):
+        if requested and requested_key not in GENERIC_FONT_FAMILY_KEYS:
+            return requested
+        if default and default_key not in GENERIC_FONT_FAMILY_KEYS:
+            return default
+        return fallback or "Sans"
+
+    for candidate in (requested, default):
+        candidate_key = _font_key(candidate)
+        if not candidate or candidate_key in GENERIC_FONT_FAMILY_KEYS:
+            continue
+        if not font_dirs or _font_family_available(candidate, font_dirs):
+            return candidate
+
+    if fallback:
+        return fallback
+    if requested and requested_key not in GENERIC_FONT_FAMILY_KEYS:
+        return requested
+    if default and default_key not in GENERIC_FONT_FAMILY_KEYS:
+        return default
+    return "Sans"
+
+
 def build_ass(
     cues: list[dict[str, Any]],
     global_style: dict[str, Any] | None,
     *,
-    default_font_family: str = "Sans",
-    play_res_x: int = 1920,
-    play_res_y: int = 1080,
+    default_font_family: str = "auto",
+    play_res_x: int = ASS_PLAY_RES_X,
+    play_res_y: int = ASS_PLAY_RES_Y,
+    font_dirs: tuple[Path, ...] | list[Path] | None = None,
 ) -> str:
     base_style = normalize_caption_style(global_style)
-    effective_default_font = (
-        base_style.get("font_family")
-        or str(default_font_family or "").strip()
-        or DEFAULT_CAPTION_STYLE["font_family"]
+    normalized_cues = normalize_cues(cues, global_style=base_style)
+    script_text = "\n".join(cue_to_text(cue) for cue in normalized_cues)
+    effective_default_font = _resolve_ass_font_family(
+        str(base_style.get("font_family") or default_font_family or "auto"),
+        text=script_text,
+        default_font_family=default_font_family,
+        font_dirs=font_dirs,
     )
 
     lines = [
@@ -341,14 +512,29 @@ def build_ass(
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
     ]
 
-    for cue in normalize_cues(cues, global_style=base_style):
+    for cue in normalized_cues:
         effective_style = merge_caption_style(base_style, cue.get("style"))
-        position_x = round(play_res_x * effective_style["position_x"] / 100)
-        position_y = round(play_res_y * effective_style["position_y"] / 100)
+        anchor_x, anchor_y = _alignment_anchor_percent(effective_style["alignment"])
+        position_x = _clamp(
+            round(play_res_x * anchor_x / 100) + int(effective_style.get("offset_x", 0)),
+            0,
+            play_res_x,
+        )
+        position_y = _clamp(
+            round(play_res_y * anchor_y / 100) + int(effective_style.get("offset_y", 0)),
+            0,
+            play_res_y,
+        )
+        font_family = _resolve_ass_font_family(
+            str(effective_style.get("font_family") or effective_default_font),
+            text=cue_to_text(cue),
+            default_font_family=effective_default_font,
+            font_dirs=font_dirs,
+        )
         tags = [
             f"\\an{ALIGNMENT_TO_ASS[effective_style['alignment']]}",
             f"\\pos({position_x},{position_y})",
-            f"\\fn{_clean_ass_value(effective_style['font_family'] or effective_default_font)}",
+            f"\\fn{_clean_ass_value(font_family)}",
             f"\\fs{effective_style['font_size']}",
             f"\\c{_ass_color(effective_style['text_color'])}",
             f"\\3c{_ass_color(effective_style['outline_color'])}",

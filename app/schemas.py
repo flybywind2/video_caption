@@ -4,24 +4,27 @@ from pydantic import BaseModel, Field
 from typing import Literal
 
 
+AlignmentValue = Literal[
+    "top-left",
+    "top-center",
+    "top-right",
+    "middle-left",
+    "middle-center",
+    "middle-right",
+    "bottom-left",
+    "bottom-center",
+    "bottom-right",
+]
+
+
 class CaptionStyle(BaseModel):
-    font_family: str = "Sans"
+    font_family: str = "auto"
     font_size: int = Field(48, ge=18, le=120)
     text_color: str = "#ffffff"
     outline_color: str = "#101010"
-    alignment: Literal[
-        "top-left",
-        "top-center",
-        "top-right",
-        "middle-left",
-        "middle-center",
-        "middle-right",
-        "bottom-left",
-        "bottom-center",
-        "bottom-right",
-    ] = "bottom-center"
-    position_x: int = Field(50, ge=0, le=100)
-    position_y: int = Field(90, ge=0, le=100)
+    alignment: AlignmentValue = "bottom-center"
+    offset_x: int = Field(0, ge=-960, le=960)
+    offset_y: int = Field(0, ge=-540, le=540)
 
 
 class CueStyleOverride(BaseModel):
@@ -29,19 +32,9 @@ class CueStyleOverride(BaseModel):
     font_size: int | None = Field(None, ge=18, le=120)
     text_color: str | None = None
     outline_color: str | None = None
-    alignment: Literal[
-        "top-left",
-        "top-center",
-        "top-right",
-        "middle-left",
-        "middle-center",
-        "middle-right",
-        "bottom-left",
-        "bottom-center",
-        "bottom-right",
-    ] | None = None
-    position_x: int | None = Field(None, ge=0, le=100)
-    position_y: int | None = Field(None, ge=0, le=100)
+    alignment: AlignmentValue | None = None
+    offset_x: int | None = Field(None, ge=-960, le=960)
+    offset_y: int | None = Field(None, ge=-540, le=540)
 
 
 class CaptionCue(BaseModel):

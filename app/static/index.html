@@ -157,11 +157,7 @@
                     <div class="style-grid global-style-grid">
                       <label class="field">
                         <span>폰트</span>
-                        <input
-                          id="global-font-family"
-                          type="text"
-                          placeholder="Sans"
-                        />
+                        <select id="global-font-family"></select>
                       </label>
                       <label class="field">
                         <span>크기</span>
@@ -186,28 +182,35 @@
                         <input id="global-outline-color" type="color" />
                       </label>
                       <label class="field">
-                        <span>X 위치 (%)</span>
+                        <span>X 미세조정 (px)</span>
                         <input
-                          id="global-position-x"
+                          id="global-offset-x"
                           type="number"
-                          min="0"
-                          max="100"
+                          min="-960"
+                          max="960"
                           step="1"
                         />
                       </label>
                       <label class="field">
-                        <span>Y 위치 (%)</span>
+                        <span>Y 미세조정 (px)</span>
                         <input
-                          id="global-position-y"
+                          id="global-offset-y"
                           type="number"
-                          min="0"
-                          max="100"
+                          min="-540"
+                          max="540"
                           step="1"
                         />
                       </label>
                     </div>
 
                     <div class="style-sidebar-actions">
+                      <button
+                        id="reset-global-style-button"
+                        class="ghost-button"
+                        type="button"
+                      >
+                        기본값으로 초기화
+                      </button>
                       <button
                         id="apply-global-style-button"
                         class="ghost-button"

@@ -278,7 +278,8 @@ async def update_captions(
         build_ass(
             caption_document["cues"],
             caption_document["global_style"],
-            default_font_family=settings.subtitle_font_name or "Sans",
+            default_font_family=settings.subtitle_font_name or "auto",
+            font_dirs=settings.subtitle_font_dirs,
         ),
     )
     repository.update_task(
