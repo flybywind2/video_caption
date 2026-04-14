@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import mimetypes
 import shutil
@@ -17,13 +16,12 @@ from app.artifacts import (
     build_task_artifacts,
     read_json,
     remove_task_workspace,
-    split_part_filename,
     temp_upload_path,
     write_json,
     write_text,
 )
 from app.config import Settings
-from app.database import TaskRepository, utc_now
+from app.database import TaskRepository
 from app.queue import TaskProcessor
 from app.schemas import (
     ArtifactLinks,
@@ -41,7 +39,6 @@ from app.services.captions import (
     default_caption_style,
     normalize_caption_document,
 )
-from app.services.ffmpeg import split_video
 
 settings = Settings.from_env()
 BASE_DIR = Path(__file__).resolve().parent
@@ -192,68 +189,12 @@ async def register_upload(
     processor: TaskProcessor,
     upload: UploadFile,
     language: str,
-    split_mode: str,
 ) -> list[dict]:
     temp_source_path = temp_upload_path(settings.storage_root, upload.filename)
     try:
         await write_upload_to_path(upload, temp_source_path)
     finally:
         await upload.close()
-
-    if split_mode == "chunked":
-        split_batch_id = uuid4().hex[:10]
-        split_dir = temp_source_path.parent / f"{temp_source_path.stem}-parts"
-        created_tasks: list[dict] = []
-        batch_created_at = utc_now()
-        try:
-            chunk_paths = split_video(
-                temp_source_path,
-                split_dir,
-                settings.upload_split_chunk_seconds,
-                settings.ffmpeg_bin,
-            )
-            total = len(chunk_paths)
-            previous_task_id: str | None = None
-            for index, chunk_path in enumerate(chunk_paths, start=1):
-                task_id = uuid4().hex[:12]
-                part_filename = split_part_filename(upload.filename, index, total)
-                artifacts = build_task_artifacts(settings.storage_root, task_id, part_filename)
-                artifacts.ensure_directories()
-                shutil.move(str(chunk_path), str(artifacts.source_video_path))
-                task = repository.create_task(
-                    create_task_record(
-                        task_id=task_id,
-                        original_filename=part_filename,
-                        language=language,
-                        artifacts=artifacts,
-                        status="queued" if index == 1 else "blocked",
-                        message=(
-                            f"Split part {index}/{total} queued."
-                            if index == 1
-                            else f"Split part {index}/{total} waiting for the previous part."
-                        ),
-                        batch_id=split_batch_id,
-                        batch_index=index,
-                        batch_total=total,
-                        blocked_by_task_id=previous_task_id,
-                        created_at=batch_created_at,
-                    )
-                )
-                created_tasks.append(task)
-                previous_task_id = task_id
-        except Exception:
-            for task in created_tasks:
-                delete_task_files(repository, task["id"])
-            raise
-        finally:
-            shutil.rmtree(split_dir, ignore_errors=True)
-            temp_source_path.unlink(missing_ok=True)
-
-        if not created_tasks:
-            raise HTTPException(status_code=500, detail="Split upload produced no tasks.")
-
-        await processor.enqueue(created_tasks[0]["id"], action="transcribe")
-        return created_tasks
 
     task_id = uuid4().hex[:12]
     artifacts = build_task_artifacts(settings.storage_root, task_id, upload.filename)
@@ -281,10 +222,6 @@ def create_task_record(
     artifacts,
     status: str,
     message: str,
-    batch_id: str | None = None,
-    batch_index: int = 1,
-    batch_total: int = 1,
-    blocked_by_task_id: str | None = None,
     created_at: str | None = None,
 ) -> dict:
     return {
@@ -292,12 +229,8 @@ def create_task_record(
         "original_filename": original_filename,
         "language": language,
         "status": status,
-        "batch_id": batch_id,
-        "batch_index": batch_index,
-        "batch_total": batch_total,
-        "blocked_by_task_id": blocked_by_task_id,
         "pending_action": "transcribe",
-        "progress": 0.0 if status == "blocked" else 0.05,
+        "progress": 0.05,
         "message": message,
         "source_video_path": str(artifacts.source_video_path),
         "audio_path": str(artifacts.audio_path),
@@ -358,9 +291,6 @@ async def health(request: Request) -> HealthResponse:
         queue_size=processor.queue_size(),
         worker_count=settings.worker_count,
         task_counts=repository.status_counts(),
-        upload_split_threshold_bytes=settings.upload_split_threshold_bytes,
-        upload_split_prompt_seconds=settings.upload_split_prompt_seconds,
-        upload_split_chunk_seconds=settings.upload_split_chunk_seconds,
     )
 
 
@@ -379,8 +309,6 @@ async def create_task(
     file: UploadFile | None = File(default=None),
     files: list[UploadFile] | None = File(default=None),
     language: str = Form("en"),
-    split_mode: str = Form("single"),
-    split_mode_plan: str | None = Form(default=None),
 ) -> TaskCreateResponse:
     uploads = collect_uploads(file, files)
     if not uploads:
@@ -388,42 +316,24 @@ async def create_task(
 
     repository = get_repository(request)
     processor = get_processor(request)
-    if split_mode_plan:
-        try:
-            planned_modes = json.loads(split_mode_plan)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(status_code=400, detail="Invalid split mode plan.") from exc
-        if not isinstance(planned_modes, list) or len(planned_modes) != len(uploads):
-            raise HTTPException(status_code=400, detail="Split mode plan does not match uploads.")
-        split_modes = [str(item or "single") for item in planned_modes]
-    else:
-        split_modes = [split_mode] + ["single"] * (len(uploads) - 1)
-
-    for mode in split_modes:
-        if mode not in {"single", "chunked"}:
-            raise HTTPException(status_code=400, detail="Unsupported split mode.")
 
     created_tasks: list[dict] = []
-    for upload, mode in zip(uploads, split_modes):
-        created_tasks.extend(await register_upload(repository, processor, upload, language, mode))
+    for upload in uploads:
+        created_tasks.extend(await register_upload(repository, processor, upload, language))
 
     if not created_tasks:
         raise HTTPException(status_code=500, detail="No tasks were created.")
 
     input_file_count = len(uploads)
     task_count = len(created_tasks)
-    batch_created = any((task.get("batch_total") or 1) > 1 for task in created_tasks)
     if input_file_count == 1 and task_count == 1:
         message = "Task queued."
-    elif input_file_count == 1:
-        message = f"1개 파일이 {task_count}개 분할 작업으로 등록되었습니다."
     else:
         message = f"{input_file_count}개 파일이 등록되었습니다. 총 {task_count}개 작업이 큐에 추가되었습니다."
 
     return TaskCreateResponse(
         tasks=[task_to_detail(task) for task in created_tasks],
         primary_task_id=created_tasks[0]["id"],
-        batch_created=batch_created,
         input_file_count=input_file_count,
         task_count=task_count,
         message=message,

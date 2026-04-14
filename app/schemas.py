@@ -100,15 +100,11 @@ class HealthResponse(BaseModel):
     queue_size: int
     worker_count: int
     task_counts: dict[str, int]
-    upload_split_threshold_bytes: int
-    upload_split_prompt_seconds: int
-    upload_split_chunk_seconds: int
 
 
 class TaskCreateResponse(BaseModel):
     tasks: list[TaskDetail]
     primary_task_id: str
-    batch_created: bool = False
     input_file_count: int = 1
     task_count: int = 1
     message: str

@@ -57,9 +57,6 @@ class Settings:
     whisper_chunk_seconds: int
     whisper_retry_attempts: int
     whisper_retry_backoff_seconds: float
-    upload_split_threshold_bytes: int
-    upload_split_prompt_seconds: int
-    upload_split_chunk_seconds: int
     subtitle_font_dirs: tuple[Path, ...]
     subtitle_font_name: str
     worker_count: int
@@ -110,18 +107,6 @@ class Settings:
             whisper_retry_backoff_seconds=max(
                 0.5,
                 float(os.getenv("WHISPER_RETRY_BACKOFF_SECONDS", "2.0")),
-            ),
-            upload_split_threshold_bytes=max(
-                50 * 1024 * 1024,
-                int(os.getenv("UPLOAD_SPLIT_THRESHOLD_BYTES", str(500 * 1024 * 1024))),
-            ),
-            upload_split_prompt_seconds=max(
-                300,
-                int(os.getenv("UPLOAD_SPLIT_PROMPT_SECONDS", str(20 * 60))),
-            ),
-            upload_split_chunk_seconds=max(
-                120,
-                int(os.getenv("UPLOAD_SPLIT_CHUNK_SECONDS", str(10 * 60))),
             ),
             subtitle_font_dirs=_subtitle_font_dirs(
                 os.getenv("SUBTITLE_FONT_DIRS"),

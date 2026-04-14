@@ -31,11 +31,6 @@ const state = {
   renderedDetailSignature: null,
   renderedTaskId: null,
   activeCueId: null,
-  uploadPolicy: {
-    thresholdBytes: 500 * 1024 * 1024,
-    promptSeconds: 20 * 60,
-    chunkSeconds: 10 * 60,
-  },
 };
 
 const APP_BASE = new URL(window.location.href);
@@ -161,19 +156,6 @@ function formatCueTime(seconds) {
     return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${String(centiseconds).padStart(2, "0")}`;
   }
   return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${String(centiseconds).padStart(2, "0")}`;
-}
-
-function formatBytes(bytes) {
-  const value = Number(bytes) || 0;
-  if (value >= 1024 ** 3) {
-    return `${(value / 1024 ** 3).toFixed(1)}GB`;
-  }
-  return `${(value / 1024 ** 2).toFixed(0)}MB`;
-}
-
-function formatMinutes(seconds) {
-  const totalMinutes = Math.max(1, Math.round((Number(seconds) || 0) / 60));
-  return `${totalMinutes}분`;
 }
 
 function escapeHtml(value) {
@@ -639,127 +621,10 @@ async function loadHealth() {
     workerCountEl.textContent = String(health.worker_count);
     ffmpegStatusEl.textContent = health.ffmpeg_available ? "Ready" : "Missing";
     whisperStatusEl.textContent = health.whisper_configured ? "Ready" : "Config";
-    state.uploadPolicy = {
-      thresholdBytes: health.upload_split_threshold_bytes || state.uploadPolicy.thresholdBytes,
-      promptSeconds: health.upload_split_prompt_seconds || state.uploadPolicy.promptSeconds,
-      chunkSeconds: health.upload_split_chunk_seconds || state.uploadPolicy.chunkSeconds,
-    };
   } catch (error) {
     ffmpegStatusEl.textContent = "Error";
     whisperStatusEl.textContent = "Error";
   }
-}
-
-function readLocalVideoDuration(file) {
-  return new Promise((resolve) => {
-    if (!file || !file.type.startsWith("video/")) {
-      resolve(null);
-      return;
-    }
-
-    const objectUrl = URL.createObjectURL(file);
-    const probeVideo = document.createElement("video");
-    const cleanup = () => {
-      URL.revokeObjectURL(objectUrl);
-      probeVideo.removeAttribute("src");
-      probeVideo.load();
-    };
-
-    probeVideo.preload = "metadata";
-    probeVideo.onloadedmetadata = () => {
-      const duration = Number.isFinite(probeVideo.duration) ? probeVideo.duration : null;
-      cleanup();
-      resolve(duration);
-    };
-    probeVideo.onerror = () => {
-      cleanup();
-      resolve(null);
-    };
-    probeVideo.src = objectUrl;
-  });
-}
-
-async function chooseUploadSplitMode(file) {
-  const policy = state.uploadPolicy;
-  const duration = await readLocalVideoDuration(file);
-  const reasons = splitReasons(file, duration);
-
-  if (!reasons.length) {
-    return "single";
-  }
-
-  const estimatedParts =
-    duration !== null ? Math.max(2, Math.ceil(duration / policy.chunkSeconds)) : null;
-  const confirmed = window.confirm(
-    [
-      "큰 영상이라 분할 등록을 권장합니다.",
-      `기준: ${reasons.join(", ")}`,
-      `확인: ${formatMinutes(policy.chunkSeconds)} 단위로 분할 등록`,
-      "취소: 단일 작업으로 그대로 등록",
-      estimatedParts ? `예상 파트 수: 약 ${estimatedParts}개` : "",
-    ]
-      .filter(Boolean)
-      .join("\n")
-  );
-  return confirmed ? "chunked" : "single";
-}
-
-function splitReasons(file, duration) {
-  const policy = state.uploadPolicy;
-  const reasons = [];
-
-  if ((file?.size || 0) >= policy.thresholdBytes) {
-    reasons.push(`파일 크기 ${formatBytes(file.size)}`);
-  }
-  if (duration !== null && duration >= policy.promptSeconds) {
-    reasons.push(`영상 길이 ${formatMinutes(duration)}`);
-  }
-  return reasons;
-}
-
-async function chooseUploadSplitModes(files) {
-  const uploads = [...files];
-  if (!uploads.length) {
-    return [];
-  }
-
-  if (uploads.length === 1) {
-    return [await chooseUploadSplitMode(uploads[0])];
-  }
-
-  const durations = await Promise.all(uploads.map((file) => readLocalVideoDuration(file)));
-  const largeUploads = uploads
-    .map((file, index) => ({
-      file,
-      duration: durations[index],
-      reasons: splitReasons(file, durations[index]),
-    }))
-    .filter((entry) => entry.reasons.length > 0);
-
-  if (!largeUploads.length) {
-    return uploads.map(() => "single");
-  }
-
-  const preview = largeUploads
-    .slice(0, 3)
-    .map((entry) => `- ${entry.file.name}: ${entry.reasons.join(", ")}`);
-  if (largeUploads.length > 3) {
-    preview.push(`- 외 ${largeUploads.length - 3}개 파일`);
-  }
-
-  const confirmed = window.confirm(
-    [
-      `${uploads.length}개 파일 중 ${largeUploads.length}개가 큰 영상입니다.`,
-      "큰 파일만 자동 분할 등록할까요?",
-      ...preview,
-      `확인: 큰 파일은 ${formatMinutes(state.uploadPolicy.chunkSeconds)} 단위 분할`,
-      "취소: 모든 파일을 단일 작업으로 등록",
-    ].join("\n")
-  );
-
-  return uploads.map((file, index) =>
-    confirmed && splitReasons(file, durations[index]).length > 0 ? "chunked" : "single"
-  );
 }
 
 async function loadTasks({ preserveSelection = true } = {}) {
@@ -861,19 +726,13 @@ uploadForm.addEventListener("submit", async (event) => {
 
   setMessage(uploadMessageEl, "파일 확인 중...", "", true);
   try {
-    const splitModes = await chooseUploadSplitModes(files);
     const baseFormData = new FormData(uploadForm);
     const formData = new FormData();
     formData.set("language", String(baseFormData.get("language") || "ko"));
-    formData.set("split_mode", splitModes[0] || "single");
-    formData.set("split_mode_plan", JSON.stringify(splitModes));
     files.forEach((file) => formData.append("files", file));
-    const chunkedCount = splitModes.filter((mode) => mode === "chunked").length;
     setMessage(
       uploadMessageEl,
-      chunkedCount > 0
-        ? `${files.length}개 파일 업로드 중, ${chunkedCount}개는 분할 등록 준비 중...`
-        : `${files.length}개 파일 업로드 중...`,
+      `${files.length}개 파일 업로드 중...`,
       "",
       true
     );
