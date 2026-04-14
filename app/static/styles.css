@@ -43,24 +43,24 @@ textarea {
 }
 
 .page-shell {
-  width: min(1540px, calc(100vw - 28px));
-  margin: 14px auto 24px;
+  width: min(1680px, calc(100vw - 12px));
+  margin: 6px auto 12px;
 }
 
 .app-shell {
   display: grid;
   grid-template-columns: minmax(320px, 370px) minmax(0, 1fr);
-  gap: 22px;
+  gap: 14px;
   align-items: start;
 }
 
 .sidebar {
   position: sticky;
-  top: 14px;
-  height: calc(100vh - 28px);
+  top: 6px;
+  height: calc(100vh - 12px);
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 16px;
+  gap: 12px;
   min-height: 0;
   overflow: hidden;
 }
@@ -80,11 +80,11 @@ textarea {
 }
 
 .brand-panel {
-  padding: 22px;
+  padding: 18px;
 }
 
 .panel {
-  padding: 20px;
+  padding: 16px;
 }
 
 .eyebrow {
@@ -137,7 +137,7 @@ h1 {
 }
 
 .detail-panel {
-  min-height: calc(100vh - 28px);
+  min-height: calc(100vh - 12px);
   display: flex;
   flex-direction: column;
 }
@@ -366,10 +366,10 @@ input[type="color"] {
 .detail-view {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
   flex: 1 1 auto;
   min-height: 0;
-  margin-top: 18px;
+  margin-top: 14px;
 }
 
 .detail-topbar,
@@ -415,9 +415,16 @@ input[type="color"] {
 
 .detail-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 12px;
   align-items: start;
+  min-height: min(78vh, 980px);
+}
+
+.workspace-main {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 12px;
   min-height: min(74vh, 980px);
 }
 
@@ -427,9 +434,9 @@ input[type="color"] {
 
 .preview-stack {
   position: sticky;
-  top: 18px;
+  top: 12px;
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .video-card,
@@ -442,7 +449,7 @@ input[type="color"] {
 .video-card,
 .transcript-box {
   border-radius: 22px;
-  padding: 16px;
+  padding: 14px;
 }
 
 .video-card {
@@ -486,7 +493,7 @@ video {
 
 .editor-column {
   border-radius: 24px;
-  padding: 18px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
   min-height: min(74vh, 980px);
@@ -516,11 +523,26 @@ video {
 }
 
 .global-style-panel {
-  margin-top: 8px;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.58);
+}
+
+.style-sidebar {
+  position: sticky;
+  top: 12px;
+  align-self: start;
+}
+
+.style-sidebar-actions {
+  display: flex;
+  justify-content: stretch;
+  margin-top: 14px;
+}
+
+.style-sidebar-actions > * {
+  width: 100%;
 }
 
 .style-grid {
@@ -529,7 +551,7 @@ video {
 }
 
 .global-style-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   margin-top: 14px;
 }
 
@@ -625,6 +647,7 @@ video {
   border: 1px solid rgba(31, 27, 22, 0.08);
   border-radius: 18px;
   background: rgba(255, 248, 242, 0.78);
+  overflow: hidden;
 }
 
 .cue-style-panel summary {
@@ -636,10 +659,23 @@ video {
   list-style: none;
   padding: 14px 16px;
   font-weight: 700;
+  position: relative;
+  padding-right: 42px;
 }
 
 .cue-style-panel summary::-webkit-details-marker {
   display: none;
+}
+
+.cue-style-panel summary::after {
+  content: "+";
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--accent-deep);
 }
 
 .cue-style-summary {
@@ -650,6 +686,10 @@ video {
 
 .cue-style-panel[open] summary {
   border-bottom: 1px solid rgba(31, 27, 22, 0.08);
+}
+
+.cue-style-panel[open] summary::after {
+  content: "−";
 }
 
 .cue-style-grid {
@@ -722,7 +762,16 @@ video {
     min-height: auto;
   }
 
+  .workspace-main {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
   .preview-stack {
+    position: static;
+  }
+
+  .style-sidebar {
     position: static;
   }
 
@@ -734,8 +783,8 @@ video {
 
 @media (max-width: 860px) {
   .page-shell {
-    width: min(100vw - 18px, 100%);
-    margin-top: 10px;
+    width: min(100vw - 8px, 100%);
+    margin-top: 4px;
   }
 
   .brand-panel,
@@ -785,6 +834,11 @@ video {
   .cue-style-panel summary {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .global-style-grid,
+  .cue-style-grid {
+    grid-template-columns: 1fr;
   }
 
   .cue-seek-button,

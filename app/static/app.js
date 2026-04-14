@@ -415,7 +415,7 @@ function renderCueEditor(cues, globalStyle) {
             <span>텍스트</span>
             <textarea class="cue-text">${escapeHtml(cue.text)}</textarea>
           </label>
-          <details class="cue-style-panel" ${hasCustomStyle ? "open" : ""}>
+          <details class="cue-style-panel">
             <summary>
               <span>세부 스타일</span>
               <span class="cue-style-summary">폰트, 색상, 위치를 이 자막만 따로 조정합니다.</span>
