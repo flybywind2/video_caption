@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -34,11 +35,25 @@ from app.services.whisper import (
     merge_transcripts,
 )
 
+logger = logging.getLogger("video_caption.queue")
+
 
 @dataclass(frozen=True, slots=True)
 class QueuedJob:
     task_id: str
     action: str
+
+
+def _coverage_seconds(items: list[dict[str, Any]] | None) -> float:
+    total = 0.0
+    for item in items or []:
+        try:
+            start = float(item.get("start") or 0.0)
+            end = float(item.get("end") or start)
+        except (TypeError, ValueError, AttributeError):
+            continue
+        total += max(0.0, end - start)
+    return round(total, 3)
 
 
 class TaskProcessor:
@@ -154,6 +169,12 @@ class TaskProcessor:
         if not task:
             return
 
+        logger.info(
+            "task=%s step=transcribe_start file=%s language=%s",
+            task_id,
+            task["original_filename"],
+            task["language"],
+        )
         source_path = Path(task["source_video_path"])
         artifacts = build_task_artifacts(
             self.settings.storage_root, task_id, task["original_filename"]
@@ -193,6 +214,20 @@ class TaskProcessor:
             task["language"],
         )
         cues = cues_from_transcript(transcript)
+        segments = transcript.get("segments") or []
+        speakers = transcript.get("speakers") or []
+        logger.info(
+            "task=%s step=transcribe_result segments=%s segment_coverage=%.3f speakers=%s speaker_coverage=%.3f cues=%s cue_coverage=%.3f transcript_duration=%s transcript_text_len=%s",
+            task_id,
+            len(segments),
+            _coverage_seconds(segments),
+            len(speakers),
+            _coverage_seconds(speakers),
+            len(cues),
+            _coverage_seconds(cues),
+            transcript.get("duration"),
+            len(str(transcript.get("text") or "")),
+        )
         if not cues:
             raise RuntimeError("Transcription returned no usable caption segments.")
         caption_document = {
@@ -225,6 +260,13 @@ class TaskProcessor:
             message="Rendering subtitled video",
         )
         rendered_video_path = new_rendered_video_path(artifacts.task_dir)
+        logger.info(
+            "task=%s step=render_start cues=%s ass=%s output=%s",
+            task_id,
+            len(caption_document["cues"]),
+            artifacts.ass_path.name,
+            rendered_video_path.name,
+        )
         await asyncio.to_thread(
             render_subtitles,
             source_path,
@@ -248,6 +290,11 @@ class TaskProcessor:
             error_message=None,
             rendered_video_path=str(rendered_video_path),
             completed_at=utc_now(),
+        )
+        logger.info(
+            "task=%s step=render_complete output=%s",
+            task_id,
+            rendered_video_path.name,
         )
         await self._release_blocked_successors(task_id)
 
@@ -308,6 +355,13 @@ class TaskProcessor:
             self.settings.whisper_chunk_seconds,
             self.settings.ffmpeg_bin,
         )
+        logger.info(
+            "task=%s step=chunk_transcribe_start chunks=%s chunk_seconds=%s audio=%s",
+            task_id,
+            len(chunk_paths),
+            self.settings.whisper_chunk_seconds,
+            audio_path.name,
+        )
 
         merged_inputs: list[tuple[float, dict[str, Any]]] = []
         offset = 0.0
@@ -329,6 +383,17 @@ class TaskProcessor:
                 probe_duration,
                 chunk_path,
                 self.settings.ffprobe_bin,
+            )
+            logger.info(
+                "task=%s step=chunk_transcribe_result chunk=%s/%s chunk_file=%s chunk_duration=%.3f segments=%s speakers=%s text_len=%s",
+                task_id,
+                index,
+                total_chunks,
+                chunk_path.name,
+                chunk_duration,
+                len(transcript.get("segments") or []),
+                len(transcript.get("speakers") or []),
+                len(str(transcript.get("text") or "")),
             )
             merged_inputs.append((offset, transcript))
             offset += max(chunk_duration, float(transcript.get("duration") or 0.0), 0.1)
@@ -378,6 +443,13 @@ class TaskProcessor:
             error_message=None,
         )
 
+        logger.info(
+            "task=%s step=rerender_start cues=%s ass=%s output=%s",
+            task_id,
+            len(caption_document["cues"]),
+            artifacts.ass_path.name,
+            rendered_video_path.name,
+        )
         await asyncio.to_thread(
             render_subtitles,
             source_path,
@@ -401,6 +473,11 @@ class TaskProcessor:
             error_message=None,
             rendered_video_path=str(rendered_video_path),
             completed_at=utc_now(),
+        )
+        logger.info(
+            "task=%s step=rerender_complete output=%s",
+            task_id,
+            rendered_video_path.name,
         )
         await self._release_blocked_successors(task_id)
 
