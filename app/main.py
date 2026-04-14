@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import mimetypes
 import shutil
 from contextlib import asynccontextmanager
@@ -44,6 +45,21 @@ from app.services.ffmpeg import split_video
 settings = Settings.from_env()
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+
+
+def configure_app_logging() -> None:
+    app_logger = logging.getLogger("video_caption")
+    uvicorn_logger = logging.getLogger("uvicorn.error")
+
+    if uvicorn_logger.handlers:
+        app_logger.handlers = list(uvicorn_logger.handlers)
+        app_logger.setLevel(uvicorn_logger.level or logging.INFO)
+        app_logger.propagate = False
+        return
+
+    if not app_logger.handlers:
+        logging.basicConfig(level=logging.INFO)
+    app_logger.setLevel(logging.INFO)
 
 
 def ready_artifact_url(task_id: str, artifact_name: str, raw_path: str | None) -> str | None:
@@ -194,6 +210,7 @@ def create_task_record(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configure_app_logging()
     settings.ensure_directories()
     repository = TaskRepository(settings.database_path, settings.storage_root)
     repository.init_db()
