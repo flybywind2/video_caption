@@ -216,7 +216,7 @@ def probe_duration(media_path: Path, ffprobe_bin: str) -> float:
 
 def render_subtitles(
     video_path: Path,
-    srt_path: Path,
+    subtitle_path: Path,
     output_path: Path,
     ffmpeg_bin: str,
     subtitle_font_dirs: tuple[Path, ...] | list[Path] | None = None,
@@ -224,7 +224,7 @@ def render_subtitles(
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     font_dirs = _resolve_font_dirs(subtitle_font_dirs)
-    needs_unicode_font = _subtitle_needs_unicode_font(srt_path)
+    needs_unicode_font = _subtitle_needs_unicode_font(subtitle_path)
     if needs_unicode_font and not font_dirs:
         raise FfmpegError(
             "No usable subtitle fonts were found for non-ASCII captions. "
@@ -233,13 +233,15 @@ def render_subtitles(
 
     fontsdir = _pick_fontsdir(font_dirs)
     selected_font_name = subtitle_font_name.strip()
-    if not selected_font_name and _subtitle_contains_hangul(srt_path):
+    if not selected_font_name and _subtitle_contains_hangul(subtitle_path):
         selected_font_name = _fc_match_hangul_font() or _guess_hangul_font_name(font_dirs)
 
-    subtitle_filter = f"subtitles={_escape_filter_value(str(srt_path))}:charenc=UTF-8:wrap_unicode=1"
+    subtitle_filter = f"subtitles={_escape_filter_value(str(subtitle_path))}:wrap_unicode=1"
+    if subtitle_path.suffix.lower() != ".ass":
+        subtitle_filter += ":charenc=UTF-8"
     if fontsdir:
         subtitle_filter += f":fontsdir={_escape_filter_value(str(fontsdir))}"
-    if selected_font_name:
+    if selected_font_name and subtitle_path.suffix.lower() != ".ass":
         escaped_font_name = selected_font_name.replace("'", "\\'")
         subtitle_filter += f":force_style='FontName={escaped_font_name}'"
 

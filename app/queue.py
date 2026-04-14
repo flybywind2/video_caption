@@ -15,7 +15,13 @@ from app.artifacts import (
 )
 from app.config import Settings
 from app.database import TaskRepository, utc_now
-from app.services.captions import build_srt, cues_from_transcript, normalize_cues
+from app.services.captions import (
+    build_ass,
+    build_srt,
+    cues_from_transcript,
+    default_caption_style,
+    normalize_caption_document,
+)
 from app.services.ffmpeg import (
     extract_audio,
     probe_duration,
@@ -188,14 +194,26 @@ class TaskProcessor:
         cues = cues_from_transcript(transcript)
         if not cues:
             raise RuntimeError("Transcription returned no usable caption segments.")
+        caption_document = {
+            "global_style": default_caption_style(),
+            "cues": cues,
+        }
 
         if self._should_delete(task_id):
             self._purge_task(task_id)
             return
 
         write_json(artifacts.transcript_path, transcript)
-        write_json(artifacts.captions_path, cues)
-        write_text(artifacts.srt_path, build_srt(cues))
+        write_json(artifacts.captions_path, caption_document)
+        write_text(artifacts.srt_path, build_srt(caption_document["cues"]))
+        write_text(
+            artifacts.ass_path,
+            build_ass(
+                caption_document["cues"],
+                caption_document["global_style"],
+                default_font_family=self.settings.subtitle_font_name or "Sans",
+            ),
+        )
 
         self.repository.update_task(
             task_id,
@@ -208,7 +226,7 @@ class TaskProcessor:
         await asyncio.to_thread(
             render_subtitles,
             source_path,
-            artifacts.srt_path,
+            artifacts.ass_path,
             rendered_video_path,
             self.settings.ffmpeg_bin,
             self.settings.subtitle_font_dirs,
@@ -325,14 +343,27 @@ class TaskProcessor:
 
         source_path = Path(task["source_video_path"])
         srt_path = Path(task["srt_path"])
+        artifacts = build_task_artifacts(
+            self.settings.storage_root,
+            task_id,
+            task["original_filename"],
+        )
         rendered_video_path = new_rendered_video_path(captions_path.parent)
 
-        cues = normalize_cues(read_json(captions_path))
-        if not cues:
+        caption_document = normalize_caption_document(read_json(captions_path))
+        if not caption_document["cues"]:
             raise RuntimeError("No captions available to render.")
 
-        write_json(captions_path, cues)
-        write_text(srt_path, build_srt(cues))
+        write_json(captions_path, caption_document)
+        write_text(srt_path, build_srt(caption_document["cues"]))
+        write_text(
+            artifacts.ass_path,
+            build_ass(
+                caption_document["cues"],
+                caption_document["global_style"],
+                default_font_family=self.settings.subtitle_font_name or "Sans",
+            ),
+        )
 
         self.repository.update_task(
             task_id,
@@ -346,7 +377,7 @@ class TaskProcessor:
         await asyncio.to_thread(
             render_subtitles,
             source_path,
-            srt_path,
+            artifacts.ass_path,
             rendered_video_path,
             self.settings.ffmpeg_bin,
             self.settings.subtitle_font_dirs,

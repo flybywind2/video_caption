@@ -133,11 +133,83 @@
                       </p>
                     </div>
                     <div class="editor-actions">
+                      <button
+                        id="apply-global-style-button"
+                        class="ghost-button"
+                        type="button"
+                      >
+                        전체 스타일 일괄 적용
+                      </button>
                       <button id="save-cues-button" class="primary-button" type="button">
                         저장 후 다시 렌더링
                       </button>
                     </div>
                   </div>
+
+                  <section class="global-style-panel">
+                    <div class="panel-header compact-header">
+                      <div>
+                        <h4>전체 스타일</h4>
+                        <p>
+                          여기서 기본 자막 스타일을 잡고, 필요할 때만 각 자막 카드 안에서
+                          개별로 덮어씁니다.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div class="style-grid global-style-grid">
+                      <label class="field">
+                        <span>폰트</span>
+                        <input
+                          id="global-font-family"
+                          type="text"
+                          placeholder="Sans"
+                        />
+                      </label>
+                      <label class="field">
+                        <span>크기</span>
+                        <input
+                          id="global-font-size"
+                          type="number"
+                          min="18"
+                          max="120"
+                          step="1"
+                        />
+                      </label>
+                      <label class="field">
+                        <span>정렬</span>
+                        <select id="global-alignment"></select>
+                      </label>
+                      <label class="field">
+                        <span>글자색</span>
+                        <input id="global-text-color" type="color" />
+                      </label>
+                      <label class="field">
+                        <span>외곽선색</span>
+                        <input id="global-outline-color" type="color" />
+                      </label>
+                      <label class="field">
+                        <span>X 위치 (%)</span>
+                        <input
+                          id="global-position-x"
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="1"
+                        />
+                      </label>
+                      <label class="field">
+                        <span>Y 위치 (%)</span>
+                        <input
+                          id="global-position-y"
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="1"
+                        />
+                      </label>
+                    </div>
+                  </section>
 
                   <div id="editor-message" class="inline-message"></div>
                   <div id="cue-editor" class="cue-editor"></div>

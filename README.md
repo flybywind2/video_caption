@@ -9,6 +9,7 @@ FastAPI based web service for:
 - tracking each uploaded task
 - deleting uploaded tasks and generated artifacts
 - editing captions in the browser
+- editing global and per-caption subtitle styles in the browser
 - re-rendering a subtitle-burned video after edits
 
 ## Features
@@ -19,6 +20,7 @@ FastAPI based web service for:
 - FFmpeg audio extraction and burned subtitle rendering
 - diarized transcription support using the response shape in `request_option.md`
 - browser UI for upload, preview, task tracking, caption editing, rerender, and delete
+- ASS-based subtitle rendering so font, size, color, and position can be controlled globally or per cue
 
 ## Project Layout
 
@@ -126,7 +128,7 @@ Open `http://127.0.0.1:8000`.
 - `POST /api/tasks` uploads a video and enqueues processing
 - `GET /api/tasks` lists all tasks
 - `GET /api/tasks/{task_id}` returns task detail and caption data
-- `PUT /api/tasks/{task_id}/captions` saves edited captions and queues rerender
+- `PUT /api/tasks/{task_id}/captions` saves edited captions and subtitle styles, then queues rerender
 - `POST /api/tasks/{task_id}/retry` requeues a failed task
 - `DELETE /api/tasks/{task_id}` deletes a task and generated files
 - `GET /api/tasks/{task_id}/artifacts/{artifact_name}` serves task artifacts

@@ -30,11 +30,18 @@ from app.schemas import (
     TaskDetail,
     TaskSummary,
 )
-from app.services.captions import build_srt, normalize_cues
+from app.services.captions import (
+    build_ass,
+    build_srt,
+    default_caption_style,
+    normalize_caption_document,
+)
 
 settings = Settings.from_env()
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+
+
 def ready_artifact_url(task_id: str, artifact_name: str, raw_path: str | None) -> str | None:
     if not raw_path:
         return None
@@ -100,7 +107,10 @@ def task_to_summary(task: dict) -> TaskSummary:
 
 def task_to_detail(task: dict) -> TaskDetail:
     transcript_payload = {}
-    cues_payload = []
+    caption_document = normalize_caption_document(
+        [],
+        fallback_style=default_caption_style(),
+    )
 
     transcript_path = task.get("transcript_path")
     captions_path = task.get("captions_path")
@@ -108,13 +118,14 @@ def task_to_detail(task: dict) -> TaskDetail:
     if transcript_path and Path(transcript_path).is_file():
         transcript_payload = read_json(Path(transcript_path))
     if captions_path and Path(captions_path).is_file():
-        cues_payload = read_json(Path(captions_path))
+        caption_document = normalize_caption_document(read_json(Path(captions_path)))
 
     return TaskDetail(
         **task_to_summary(task).dict(),
         transcript_text=transcript_payload.get("text"),
         speakers=transcript_payload.get("speakers") or [],
-        cues=[CaptionCue(**cue) for cue in normalize_cues(cues_payload)],
+        global_style=caption_document["global_style"],
+        cues=[CaptionCue(**cue) for cue in caption_document["cues"]],
     )
 
 
@@ -241,17 +252,35 @@ async def update_captions(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found.")
 
+    artifacts = build_task_artifacts(
+        settings.storage_root,
+        task_id,
+        task["original_filename"],
+    )
     captions_path = Path(task["captions_path"])
     srt_path = Path(task["srt_path"])
     if not captions_path.parent.exists():
         raise HTTPException(status_code=409, detail="Task artifacts are missing.")
 
-    cues = normalize_cues([cue.dict() for cue in payload.cues])
-    if not cues:
+    caption_document = normalize_caption_document(
+        {
+            "global_style": payload.global_style.dict(),
+            "cues": [cue.dict() for cue in payload.cues],
+        }
+    )
+    if not caption_document["cues"]:
         raise HTTPException(status_code=400, detail="At least one caption cue is required.")
 
-    write_json(captions_path, cues)
-    write_text(srt_path, build_srt(cues))
+    write_json(captions_path, caption_document)
+    write_text(srt_path, build_srt(caption_document["cues"]))
+    write_text(
+        artifacts.ass_path,
+        build_ass(
+            caption_document["cues"],
+            caption_document["global_style"],
+            default_font_family=settings.subtitle_font_name or "Sans",
+        ),
+    )
     repository.update_task(
         task_id,
         message="Captions saved",

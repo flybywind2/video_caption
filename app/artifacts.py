@@ -27,6 +27,7 @@ class TaskArtifacts:
     transcript_path: Path
     captions_path: Path
     srt_path: Path
+    ass_path: Path
 
     def ensure_directories(self) -> None:
         self.task_dir.mkdir(parents=True, exist_ok=True)
@@ -47,6 +48,7 @@ def build_task_artifacts(storage_root: Path, task_id: str, original_filename: st
         transcript_path=task_dir / "transcript.json",
         captions_path=task_dir / "captions.json",
         srt_path=task_dir / "captions.srt",
+        ass_path=task_dir / "captions.ass",
     )
 
 

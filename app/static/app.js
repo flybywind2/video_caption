@@ -1,9 +1,31 @@
+const DEFAULT_GLOBAL_STYLE = {
+  font_family: "Sans",
+  font_size: 48,
+  text_color: "#ffffff",
+  outline_color: "#101010",
+  alignment: "bottom-center",
+  position_x: 50,
+  position_y: 90,
+};
+
+const ALIGNMENT_OPTIONS = [
+  { value: "top-left", label: "상단 왼쪽" },
+  { value: "top-center", label: "상단 중앙" },
+  { value: "top-right", label: "상단 오른쪽" },
+  { value: "middle-left", label: "중앙 왼쪽" },
+  { value: "middle-center", label: "정중앙" },
+  { value: "middle-right", label: "중앙 오른쪽" },
+  { value: "bottom-left", label: "하단 왼쪽" },
+  { value: "bottom-center", label: "하단 중앙" },
+  { value: "bottom-right", label: "하단 오른쪽" },
+];
+
 const state = {
   tasks: [],
   selectedTaskId: null,
   detail: null,
   previewVideoUrl: null,
-  renderedCueSignature: null,
+  renderedDetailSignature: null,
   renderedTaskId: null,
   activeCueId: null,
 };
@@ -33,10 +55,19 @@ const whisperStatusEl = document.getElementById("whisper-status");
 const retryButton = document.getElementById("retry-button");
 const refreshDetailButton = document.getElementById("refresh-detail-button");
 const saveCuesButton = document.getElementById("save-cues-button");
+const applyGlobalStyleButton = document.getElementById("apply-global-style-button");
 const sourceLink = document.getElementById("source-link");
 const renderedLink = document.getElementById("rendered-link");
 const transcriptLink = document.getElementById("transcript-link");
 const srtLink = document.getElementById("srt-link");
+const globalFontFamilyEl = document.getElementById("global-font-family");
+const globalFontSizeEl = document.getElementById("global-font-size");
+const globalAlignmentEl = document.getElementById("global-alignment");
+const globalTextColorEl = document.getElementById("global-text-color");
+const globalOutlineColorEl = document.getElementById("global-outline-color");
+const globalPositionXEl = document.getElementById("global-position-x");
+const globalPositionYEl = document.getElementById("global-position-y");
+const globalStylePanelEl = document.querySelector(".global-style-panel");
 
 function setMessage(element, message, tone = "") {
   element.textContent = message || "";
@@ -124,16 +155,145 @@ function resolveArtifactUrl(path, version = "") {
   return resolved.toString();
 }
 
-function cueSignature(cues) {
-  return JSON.stringify(
-    (cues || []).map((cue) => ({
+function clampNumber(value, min, max, fallback) {
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.round(numeric)));
+}
+
+function normalizeColor(value, fallback) {
+  const color = String(value || "").trim();
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : fallback;
+}
+
+function normalizeFontFamily(value, fallback = DEFAULT_GLOBAL_STYLE.font_family) {
+  return String(value || "").trim() || fallback;
+}
+
+function normalizeGlobalStyle(style = {}) {
+  const alignment = ALIGNMENT_OPTIONS.some((option) => option.value === style.alignment)
+    ? style.alignment
+    : DEFAULT_GLOBAL_STYLE.alignment;
+  return {
+    font_family: normalizeFontFamily(style.font_family),
+    font_size: clampNumber(style.font_size, 18, 120, DEFAULT_GLOBAL_STYLE.font_size),
+    text_color: normalizeColor(style.text_color, DEFAULT_GLOBAL_STYLE.text_color),
+    outline_color: normalizeColor(style.outline_color, DEFAULT_GLOBAL_STYLE.outline_color),
+    alignment,
+    position_x: clampNumber(style.position_x, 0, 100, DEFAULT_GLOBAL_STYLE.position_x),
+    position_y: clampNumber(style.position_y, 0, 100, DEFAULT_GLOBAL_STYLE.position_y),
+  };
+}
+
+function mergeCueStyle(globalStyle, override = {}) {
+  return {
+    ...normalizeGlobalStyle(globalStyle),
+    ...normalizeGlobalStyle({
+      ...globalStyle,
+      ...Object.fromEntries(
+        Object.entries(override || {}).filter(([, value]) => value !== null && value !== undefined && value !== "")
+      ),
+    }),
+  };
+}
+
+function compactStyleOverride(style, globalStyle) {
+  const normalizedStyle = normalizeGlobalStyle(style);
+  const normalizedGlobal = normalizeGlobalStyle(globalStyle);
+  return Object.fromEntries(
+    Object.entries(normalizedStyle).filter(([key, value]) => normalizedGlobal[key] !== value)
+  );
+}
+
+function detailSignature(detail) {
+  return JSON.stringify({
+    global_style: normalizeGlobalStyle(detail?.global_style || {}),
+    cues: (detail?.cues || []).map((cue) => ({
       id: cue.id,
       start: cue.start,
       end: cue.end,
       speaker: cue.speaker || "",
       text: cue.text,
-    }))
-  );
+      style: cue.style || {},
+    })),
+  });
+}
+
+function alignmentOptionsMarkup(selectedValue) {
+  return ALIGNMENT_OPTIONS.map(
+    (option) =>
+      `<option value="${option.value}" ${option.value === selectedValue ? "selected" : ""}>${option.label}</option>`
+  ).join("");
+}
+
+function setGlobalStyleForm(style) {
+  const normalized = normalizeGlobalStyle(style);
+  globalFontFamilyEl.value = normalized.font_family;
+  globalFontSizeEl.value = String(normalized.font_size);
+  globalAlignmentEl.innerHTML = alignmentOptionsMarkup(normalized.alignment);
+  globalTextColorEl.value = normalized.text_color;
+  globalOutlineColorEl.value = normalized.outline_color;
+  globalPositionXEl.value = String(normalized.position_x);
+  globalPositionYEl.value = String(normalized.position_y);
+}
+
+function collectGlobalStyle() {
+  return normalizeGlobalStyle({
+    font_family: globalFontFamilyEl.value,
+    font_size: globalFontSizeEl.value,
+    alignment: globalAlignmentEl.value,
+    text_color: globalTextColorEl.value,
+    outline_color: globalOutlineColorEl.value,
+    position_x: globalPositionXEl.value,
+    position_y: globalPositionYEl.value,
+  });
+}
+
+function cueStyleBadgeLabel(mode) {
+  return mode === "custom" ? "개별 스타일 적용" : "전체 스타일 사용";
+}
+
+function setCueStyleInputs(row, style) {
+  row.querySelector(".cue-font-family").value = style.font_family;
+  row.querySelector(".cue-font-size").value = String(style.font_size);
+  row.querySelector(".cue-alignment").value = style.alignment;
+  row.querySelector(".cue-text-color").value = style.text_color;
+  row.querySelector(".cue-outline-color").value = style.outline_color;
+  row.querySelector(".cue-position-x").value = String(style.position_x);
+  row.querySelector(".cue-position-y").value = String(style.position_y);
+}
+
+function collectCueStyle(row) {
+  return normalizeGlobalStyle({
+    font_family: row.querySelector(".cue-font-family").value,
+    font_size: row.querySelector(".cue-font-size").value,
+    alignment: row.querySelector(".cue-alignment").value,
+    text_color: row.querySelector(".cue-text-color").value,
+    outline_color: row.querySelector(".cue-outline-color").value,
+    position_x: row.querySelector(".cue-position-x").value,
+    position_y: row.querySelector(".cue-position-y").value,
+  });
+}
+
+function updateCueStyleMode(row, mode) {
+  row.dataset.styleMode = mode;
+  const badge = row.querySelector(".cue-style-mode");
+  if (badge) {
+    badge.textContent = cueStyleBadgeLabel(mode);
+    badge.classList.toggle("custom", mode === "custom");
+  }
+}
+
+function syncGlobalStyleRows() {
+  const globalStyle = collectGlobalStyle();
+  cueEditorEl.querySelectorAll(".cue-row").forEach((row) => {
+    if (row.dataset.styleMode === "global") {
+      setCueStyleInputs(row, globalStyle);
+      updateCueStyleMode(row, "global");
+    }
+  });
 }
 
 function applyActiveCueState() {
@@ -207,28 +367,34 @@ function renderTasks() {
     .join("");
 }
 
-function renderCueEditor(cues) {
+function renderCueEditor(cues, globalStyle) {
   if (!cues.length) {
     cueEditorEl.innerHTML = `<div class="detail-empty">아직 편집 가능한 자막이 없습니다.</div>`;
     return;
   }
 
   cueEditorEl.innerHTML = cues
-    .map(
-      (cue, index) => `
+    .map((cue, index) => {
+      const hasCustomStyle = Object.keys(cue.style || {}).length > 0;
+      const effectiveStyle = mergeCueStyle(globalStyle, cue.style || {});
+      return `
         <div
           class="cue-row ${cue.id === state.activeCueId ? "active" : ""}"
           data-index="${index}"
           data-cue-id="${escapeHtml(cue.id)}"
           data-start="${cue.start}"
           data-end="${cue.end}"
+          data-style-mode="${hasCustomStyle ? "custom" : "global"}"
           tabindex="0"
         >
           <div class="cue-row-head">
             <button class="cue-seek-button" data-action="seek-cue" data-index="${index}" type="button">
               ${formatCueTime(cue.start)} → ${formatCueTime(cue.end)}
             </button>
-            <span class="cue-index">Cue ${String(index + 1).padStart(2, "0")}</span>
+            <div class="cue-row-meta">
+              <span class="cue-index">Cue ${String(index + 1).padStart(2, "0")}</span>
+              <span class="cue-style-mode ${hasCustomStyle ? "custom" : ""}">${cueStyleBadgeLabel(hasCustomStyle ? "custom" : "global")}</span>
+            </div>
           </div>
           <div class="cue-grid">
             <label class="field">
@@ -249,14 +415,57 @@ function renderCueEditor(cues) {
             <span>텍스트</span>
             <textarea class="cue-text">${escapeHtml(cue.text)}</textarea>
           </label>
+          <details class="cue-style-panel" ${hasCustomStyle ? "open" : ""}>
+            <summary>
+              <span>세부 스타일</span>
+              <span class="cue-style-summary">폰트, 색상, 위치를 이 자막만 따로 조정합니다.</span>
+            </summary>
+            <div class="style-grid cue-style-grid">
+              <label class="field">
+                <span>폰트</span>
+                <input type="text" class="cue-style-input cue-font-family" value="${escapeHtml(effectiveStyle.font_family)}" />
+              </label>
+              <label class="field">
+                <span>크기</span>
+                <input type="number" min="18" max="120" step="1" class="cue-style-input cue-font-size" value="${effectiveStyle.font_size}" />
+              </label>
+              <label class="field">
+                <span>정렬</span>
+                <select class="cue-style-input cue-alignment">
+                  ${alignmentOptionsMarkup(effectiveStyle.alignment)}
+                </select>
+              </label>
+              <label class="field">
+                <span>글자색</span>
+                <input type="color" class="cue-style-input cue-text-color" value="${effectiveStyle.text_color}" />
+              </label>
+              <label class="field">
+                <span>외곽선색</span>
+                <input type="color" class="cue-style-input cue-outline-color" value="${effectiveStyle.outline_color}" />
+              </label>
+              <label class="field">
+                <span>X 위치 (%)</span>
+                <input type="number" min="0" max="100" step="1" class="cue-style-input cue-position-x" value="${effectiveStyle.position_x}" />
+              </label>
+              <label class="field">
+                <span>Y 위치 (%)</span>
+                <input type="number" min="0" max="100" step="1" class="cue-style-input cue-position-y" value="${effectiveStyle.position_y}" />
+              </label>
+            </div>
+            <div class="cue-style-actions">
+              <button class="ghost-button reset-style-button" data-action="reset-cue-style" data-index="${index}" type="button">
+                전체 스타일로 초기화
+              </button>
+            </div>
+          </details>
           <div class="cue-row-actions">
             <button class="ghost-button cue-insert-button" data-action="insert-cue-after" data-index="${index}" type="button">
               다음 줄에 자막 추가
             </button>
           </div>
         </div>
-      `
-    )
+      `;
+    })
     .join("");
 }
 
@@ -265,7 +474,7 @@ function syncDetailView() {
     detailEmptyEl.classList.remove("hidden");
     detailViewEl.classList.add("hidden");
     state.previewVideoUrl = null;
-    state.renderedCueSignature = null;
+    state.renderedDetailSignature = null;
     state.renderedTaskId = null;
     state.activeCueId = null;
     return;
@@ -276,6 +485,7 @@ function syncDetailView() {
 
   const task = state.detail;
   const cueList = task.cues || [];
+  const globalStyle = normalizeGlobalStyle(task.global_style || {});
   detailTitleEl.textContent = task.original_filename;
   detailMetaEl.textContent = `${prettyStatus(task.status)} · ${formatPercent(task.progress)} · ${task.language}`;
   transcriptTextEl.textContent = task.transcript_text || "전사 결과가 준비되면 이곳에 표시됩니다.";
@@ -307,15 +517,16 @@ function syncDetailView() {
   srtLink.style.display = task.artifacts.srt ? "inline" : "none";
 
   retryButton.disabled = task.status !== "failed";
-  const nextCueSignature = cueSignature(cueList);
+  const nextDetailSignature = detailSignature(task);
   const taskChanged = state.renderedTaskId !== task.id;
-  const isEditingCue = cueEditorEl.contains(document.activeElement);
+  const isEditingEditor = detailViewEl.contains(document.activeElement);
   if (taskChanged || (state.activeCueId && !cueList.some((cue) => cue.id === state.activeCueId))) {
     state.activeCueId = cueList[0]?.id || null;
   }
-  if ((!isEditingCue || taskChanged) && (taskChanged || state.renderedCueSignature !== nextCueSignature)) {
-    renderCueEditor(cueList);
-    state.renderedCueSignature = nextCueSignature;
+  if ((!isEditingEditor || taskChanged) && (taskChanged || state.renderedDetailSignature !== nextDetailSignature)) {
+    setGlobalStyleForm(globalStyle);
+    renderCueEditor(cueList, globalStyle);
+    state.renderedDetailSignature = nextDetailSignature;
     state.renderedTaskId = task.id;
   }
   applyActiveCueState();
@@ -371,14 +582,20 @@ async function loadTaskDetail(taskId, { silent = false } = {}) {
 }
 
 function collectCues() {
+  const globalStyle = collectGlobalStyle();
   const rows = [...cueEditorEl.querySelectorAll(".cue-row")];
-  return rows.map((row, index) => ({
-    id: `cue-${String(index + 1).padStart(4, "0")}`,
-    start: Number(row.querySelector(".cue-start").value),
-    end: Number(row.querySelector(".cue-end").value),
-    speaker: row.querySelector(".cue-speaker").value.trim() || null,
-    text: row.querySelector(".cue-text").value.trim(),
-  }));
+  return rows.map((row, index) => {
+    const styleMode = row.dataset.styleMode || "global";
+    const effectiveStyle = collectCueStyle(row);
+    return {
+      id: row.dataset.cueId || `cue-${String(index + 1).padStart(4, "0")}`,
+      start: Number(row.querySelector(".cue-start").value),
+      end: Number(row.querySelector(".cue-end").value),
+      speaker: row.querySelector(".cue-speaker").value.trim() || null,
+      text: row.querySelector(".cue-text").value.trim(),
+      style: styleMode === "custom" ? compactStyleOverride(effectiveStyle, globalStyle) : {},
+    };
+  });
 }
 
 function buildInsertedCue(afterCue, index) {
@@ -389,6 +606,7 @@ function buildInsertedCue(afterCue, index) {
     end: start + 2.5,
     speaker: "",
     text: "",
+    style: {},
   };
 }
 
@@ -403,11 +621,16 @@ function addCueRow(afterIndex = null) {
   const normalized = cues.map((cue, index) => ({
     ...cue,
     id: `cue-${String(index + 1).padStart(4, "0")}`,
+    style: cue.style || {},
   }));
   state.detail.cues = normalized;
   state.activeCueId = normalized[insertIndex].id;
-  renderCueEditor(normalized);
-  state.renderedCueSignature = cueSignature(normalized);
+  renderCueEditor(normalized, collectGlobalStyle());
+  state.renderedDetailSignature = detailSignature({
+    ...state.detail,
+    global_style: collectGlobalStyle(),
+    cues: normalized,
+  });
 }
 
 uploadForm.addEventListener("submit", async (event) => {
@@ -487,14 +710,37 @@ refreshDetailButton.addEventListener("click", async () => {
   await loadTaskDetail(state.selectedTaskId);
 });
 
+globalStylePanelEl.addEventListener("input", () => {
+  syncGlobalStyleRows();
+});
+
+applyGlobalStyleButton.addEventListener("click", () => {
+  if (!state.detail) {
+    return;
+  }
+  const globalStyle = collectGlobalStyle();
+  state.detail.global_style = globalStyle;
+  state.detail.cues = (state.detail.cues || []).map((cue) => ({
+    ...cue,
+    style: {},
+  }));
+  renderCueEditor(state.detail.cues, globalStyle);
+  state.renderedDetailSignature = detailSignature(state.detail);
+  applyActiveCueState();
+  setMessage(editorMessageEl, "현재 전체 스타일을 모든 자막에 적용했습니다. 저장하면 렌더에 반영됩니다.", "success");
+});
+
 cueEditorEl.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-action='remove-cue']");
   if (button && state.detail) {
     const index = Number(button.dataset.index);
     state.detail.cues.splice(index, 1);
     state.activeCueId = state.detail.cues[Math.max(0, index - 1)]?.id || state.detail.cues[0]?.id || null;
-    renderCueEditor(state.detail.cues);
-    state.renderedCueSignature = cueSignature(state.detail.cues);
+    renderCueEditor(state.detail.cues, collectGlobalStyle());
+    state.renderedDetailSignature = detailSignature({
+      ...state.detail,
+      global_style: collectGlobalStyle(),
+    });
     applyActiveCueState();
     return;
   }
@@ -505,13 +751,25 @@ cueEditorEl.addEventListener("click", (event) => {
     return;
   }
 
+  const resetStyleButton = event.target.closest("button[data-action='reset-cue-style']");
+  if (resetStyleButton) {
+    const row = resetStyleButton.closest(".cue-row");
+    if (!row) {
+      return;
+    }
+    setCueStyleInputs(row, collectGlobalStyle());
+    updateCueStyleMode(row, "global");
+    setMessage(editorMessageEl, "이 자막은 다시 전체 스타일을 따릅니다. 저장하면 반영됩니다.", "success");
+    return;
+  }
+
   if (!state.detail) {
     return;
   }
 
   const seekButton = event.target.closest("button[data-action='seek-cue']");
   const row = event.target.closest(".cue-row");
-  const isFormControl = event.target.closest("input, textarea");
+  const isFormControl = event.target.closest("input, textarea, select, summary");
   if (!row || (!seekButton && isFormControl)) {
     return;
   }
@@ -527,13 +785,23 @@ cueEditorEl.addEventListener("click", (event) => {
   seekPreview(cue.start);
 });
 
+cueEditorEl.addEventListener("input", (event) => {
+  const row = event.target.closest(".cue-row");
+  if (!row) {
+    return;
+  }
+  if (event.target.classList.contains("cue-style-input")) {
+    updateCueStyleMode(row, "custom");
+  }
+});
+
 cueEditorEl.addEventListener("keydown", (event) => {
   if ((event.key !== "Enter" && event.key !== " ") || !state.detail) {
     return;
   }
 
   const row = event.target.closest(".cue-row");
-  if (!row || event.target.closest("input, textarea, button")) {
+  if (!row || event.target.closest("input, textarea, button, select, summary")) {
     return;
   }
 
@@ -552,6 +820,7 @@ saveCuesButton.addEventListener("click", async () => {
   if (!state.selectedTaskId) {
     return;
   }
+  const globalStyle = collectGlobalStyle();
   const cues = collectCues().filter((cue) => cue.text);
   try {
     const detail = await requestJson(apiUrl(`tasks/${state.selectedTaskId}/captions`), {
@@ -560,12 +829,13 @@ saveCuesButton.addEventListener("click", async () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        global_style: globalStyle,
         cues,
         rerender: true,
       }),
     });
     state.detail = detail;
-    setMessage(editorMessageEl, "자막을 저장하고 다시 렌더링했습니다.", "success");
+    setMessage(editorMessageEl, "자막과 스타일을 저장하고 다시 렌더링했습니다.", "success");
     syncDetailView();
     await loadTasks();
   } catch (error) {
@@ -582,6 +852,8 @@ async function refreshLoop() {
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
+  globalAlignmentEl.innerHTML = alignmentOptionsMarkup(DEFAULT_GLOBAL_STYLE.alignment);
+  setGlobalStyleForm(DEFAULT_GLOBAL_STYLE);
   await refreshLoop();
   window.setInterval(refreshLoop, 5000);
 });
