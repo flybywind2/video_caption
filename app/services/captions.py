@@ -7,6 +7,10 @@ from typing import Any
 
 
 DEFAULT_SPEAKER_RE = re.compile(r"^SPEAKER[_ -]?\d+$", re.IGNORECASE)
+UNKNOWN_SPEAKER_RE = re.compile(
+    r"^(?:unknown(?:[_ -]?speaker)?(?:[_ -]?\d+)?|unk)$",
+    re.IGNORECASE,
+)
 HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 FONT_SUFFIXES = (".ttf", ".otf", ".ttc")
 ASS_PLAY_RES_X = 1920
@@ -247,7 +251,7 @@ def normalize_cues(
     base_style = normalize_caption_style(global_style)
 
     for index, cue in enumerate(raw_cues, start=1):
-        text = str(cue.get("text", "")).strip()
+        text = _cue_text(cue)
         if not text:
             continue
 
@@ -294,12 +298,65 @@ def _normalize_speaker(value: Any) -> str | None:
     speaker = str(value or "").strip()
     if not speaker:
         return None
-    if DEFAULT_SPEAKER_RE.match(speaker):
+    if DEFAULT_SPEAKER_RE.match(speaker) or UNKNOWN_SPEAKER_RE.match(speaker):
         return None
     return speaker
 
 
+def _cue_text(cue: dict[str, Any]) -> str:
+    for key in ("text", "content", "transcript"):
+        value = str(cue.get(key, "") or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _speaker_overlap(start: float, end: float, speaker: dict[str, Any]) -> float:
+    overlap_start = max(start, _float(speaker.get("start"), start))
+    overlap_end = min(end, _float(speaker.get("end"), end))
+    return max(0.0, overlap_end - overlap_start)
+
+
+def _match_speaker_for_segment(
+    start: float,
+    end: float,
+    speakers: list[dict[str, Any]],
+) -> str | None:
+    best_label: str | None = None
+    best_overlap = 0.0
+    for speaker in speakers:
+        label = _normalize_speaker(speaker.get("speaker"))
+        if not label:
+            continue
+        overlap = _speaker_overlap(start, end, speaker)
+        if overlap <= 0:
+            continue
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best_label = label
+    return best_label
+
+
 def cues_from_transcript(transcript: dict[str, Any]) -> list[dict[str, Any]]:
+    segments = transcript.get("segments") or []
+    if segments:
+        return normalize_cues(
+            [
+                {
+                    "id": segment.get("id") or f"segment-{index:04d}",
+                    "start": segment.get("start"),
+                    "end": segment.get("end"),
+                    "text": _cue_text(segment),
+                    "speaker": _match_speaker_for_segment(
+                        _float(segment.get("start"), 0.0),
+                        _float(segment.get("end"), 0.0),
+                        transcript.get("speakers") or [],
+                    ),
+                }
+                for index, segment in enumerate(segments, start=1)
+            ]
+        )
+
     speakers = transcript.get("speakers") or []
     if speakers:
         return normalize_cues(
@@ -309,27 +366,13 @@ def cues_from_transcript(transcript: dict[str, Any]) -> list[dict[str, Any]]:
                     "speaker": speaker.get("speaker"),
                     "start": speaker.get("start"),
                     "end": speaker.get("end"),
-                    "text": speaker.get("text"),
+                    "text": _cue_text(speaker),
                 }
                 for index, speaker in enumerate(speakers, start=1)
             ]
         )
 
-    segments = transcript.get("segments") or []
-    if segments:
-        return normalize_cues(
-            [
-                {
-                    "id": segment.get("id") or f"segment-{index:04d}",
-                    "start": segment.get("start"),
-                    "end": segment.get("end"),
-                    "text": segment.get("text"),
-                }
-                for index, segment in enumerate(segments, start=1)
-            ]
-        )
-
-    transcript_text = str(transcript.get("text", "")).strip()
+    transcript_text = _cue_text(transcript)
     duration = _float(transcript.get("duration"), 5.0)
     if transcript_text:
         return normalize_cues(
@@ -362,7 +405,7 @@ def ass_timestamp(seconds: float) -> str:
 
 
 def cue_to_text(cue: dict[str, Any]) -> str:
-    speaker = str(cue.get("speaker") or "").strip()
+    speaker = _normalize_speaker(cue.get("speaker")) or ""
     text = str(cue.get("text") or "").strip()
     if speaker:
         return f"{speaker}: {text}"
