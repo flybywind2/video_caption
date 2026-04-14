@@ -207,6 +207,16 @@ function resolveArtifactUrl(path, version = "") {
   return resolved.toString();
 }
 
+function resolveDownloadUrl(path, version = "") {
+  const url = resolveArtifactUrl(path, version);
+  if (!url) {
+    return null;
+  }
+  const resolved = new URL(url);
+  resolved.searchParams.set("download", "1");
+  return resolved.toString();
+}
+
 function clampNumber(value, min, max, fallback) {
   const numeric = Number(value);
   if (Number.isNaN(numeric)) {
@@ -584,14 +594,14 @@ function syncDetailView() {
     state.previewVideoUrl = null;
   }
 
-  sourceLink.href = resolveAppUrl(task.artifacts.source_video) || "#";
+  sourceLink.href = resolveDownloadUrl(task.artifacts.source_video) || "#";
   renderedLink.href =
-    resolveArtifactUrl(
+    resolveDownloadUrl(
       task.artifacts.rendered_video || task.artifacts.source_video,
       task.artifacts.rendered_video ? task.completed_at || "" : ""
     ) || "#";
-  transcriptLink.href = resolveAppUrl(task.artifacts.transcript_json) || "#";
-  srtLink.href = resolveAppUrl(task.artifacts.srt) || "#";
+  transcriptLink.href = resolveDownloadUrl(task.artifacts.transcript_json) || "#";
+  srtLink.href = resolveDownloadUrl(task.artifacts.srt) || "#";
 
   sourceLink.style.display = task.artifacts.source_video ? "inline" : "none";
   renderedLink.style.display = task.artifacts.rendered_video ? "inline" : "none";

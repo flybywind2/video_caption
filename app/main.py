@@ -479,4 +479,10 @@ async def get_artifact(task_id: str, artifact_name: str, request: Request) -> Fi
         raise HTTPException(status_code=404, detail="Artifact file is not ready yet.")
 
     media_type, _ = mimetypes.guess_type(path.name)
+    if request.query_params.get("download") == "1":
+        return FileResponse(
+            path,
+            media_type=media_type or "application/octet-stream",
+            filename=path.name,
+        )
     return FileResponse(path, media_type=media_type or "application/octet-stream")
