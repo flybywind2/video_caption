@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -132,6 +133,23 @@ def _fc_match_hangul_font() -> str:
     return result.stdout.strip()
 
 
+@lru_cache(maxsize=8)
+def _subtitles_filter_supports_option(ffmpeg_bin: str, option_name: str) -> bool:
+    try:
+        result = subprocess.run(
+            [ffmpeg_bin, "-hide_banner", "-h", "filter=subtitles"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return False
+
+    if result.returncode != 0:
+        return False
+    return option_name in result.stdout
+
+
 def extract_audio(video_path: Path, audio_path: Path, ffmpeg_bin: str) -> None:
     audio_path.parent.mkdir(parents=True, exist_ok=True)
     _run(
@@ -236,8 +254,10 @@ def render_subtitles(
     if not selected_font_name and _subtitle_contains_hangul(subtitle_path):
         selected_font_name = _fc_match_hangul_font() or _guess_hangul_font_name(font_dirs)
 
-    subtitle_filter = f"subtitles={_escape_filter_value(str(subtitle_path))}:wrap_unicode=1"
+    subtitle_filter = f"subtitles={_escape_filter_value(str(subtitle_path))}"
     if subtitle_path.suffix.lower() != ".ass":
+        if _subtitles_filter_supports_option(ffmpeg_bin, "wrap_unicode"):
+            subtitle_filter += ":wrap_unicode=1"
         subtitle_filter += ":charenc=UTF-8"
     if fontsdir:
         subtitle_filter += f":fontsdir={_escape_filter_value(str(fontsdir))}"
