@@ -317,6 +317,29 @@ def _speaker_overlap(start: float, end: float, speaker: dict[str, Any]) -> float
     return max(0.0, overlap_end - overlap_start)
 
 
+def _cue_word_bounds(words: Any) -> tuple[float | None, float | None]:
+    valid_words: list[tuple[float, float]] = []
+    for word in words or []:
+        start = _float(word.get("start"), -1.0)
+        end = _float(word.get("end"), -1.0)
+        if start < 0 or end <= start:
+            continue
+        valid_words.append((start, end))
+
+    if not valid_words:
+        return None, None
+    return valid_words[0][0], valid_words[-1][1]
+
+
+def _segment_bounds(segment: dict[str, Any]) -> tuple[float, float]:
+    fallback_start = _float(segment.get("start"), 0.0)
+    fallback_end = _float(segment.get("end"), fallback_start + 0.05)
+    word_start, word_end = _cue_word_bounds(segment.get("words"))
+    if word_start is None or word_end is None:
+        return fallback_start, max(fallback_end, fallback_start + 0.05)
+    return max(0.0, word_start), max(word_end, word_start + 0.05)
+
+
 def _match_speaker_for_segment(
     start: float,
     end: float,
@@ -344,12 +367,12 @@ def cues_from_transcript(transcript: dict[str, Any]) -> list[dict[str, Any]]:
             [
                 {
                     "id": segment.get("id") or f"segment-{index:04d}",
-                    "start": segment.get("start"),
-                    "end": segment.get("end"),
+                    "start": _segment_bounds(segment)[0],
+                    "end": _segment_bounds(segment)[1],
                     "text": _cue_text(segment),
                     "speaker": _match_speaker_for_segment(
-                        _float(segment.get("start"), 0.0),
-                        _float(segment.get("end"), 0.0),
+                        _segment_bounds(segment)[0],
+                        _segment_bounds(segment)[1],
                         transcript.get("speakers") or [],
                     ),
                 }

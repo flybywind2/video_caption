@@ -97,6 +97,14 @@ class TaskRepository:
 
         return inserted
 
+    def ensure_recovered_if_empty(self) -> int:
+        with self._lock:
+            row = self._conn.execute("SELECT COUNT(*) AS count FROM tasks").fetchone()
+        task_count = int(row["count"]) if row else 0
+        if task_count > 0:
+            return 0
+        return self.recover_from_storage()
+
     def backfill_snapshots(self) -> None:
         for task in self.list_tasks():
             self._write_task_snapshot(task)

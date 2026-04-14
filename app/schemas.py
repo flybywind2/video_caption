@@ -109,4 +109,6 @@ class TaskCreateResponse(BaseModel):
     tasks: list[TaskDetail]
     primary_task_id: str
     batch_created: bool = False
+    input_file_count: int = 1
+    task_count: int = 1
     message: str

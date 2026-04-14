@@ -36,6 +36,7 @@ from app.services.whisper import (
 )
 
 logger = logging.getLogger("video_caption.queue")
+MIN_RETRY_CHUNK_SECONDS = 15
 
 
 @dataclass(frozen=True, slots=True)
@@ -338,6 +339,7 @@ class TaskProcessor:
         *,
         reason: str,
     ) -> dict[str, Any]:
+        audio_size = audio_path.stat().st_size if audio_path.exists() else 0
         self.repository.update_task(
             task_id,
             status="processing",
@@ -356,11 +358,12 @@ class TaskProcessor:
             self.settings.ffmpeg_bin,
         )
         logger.info(
-            "task=%s step=chunk_transcribe_start chunks=%s chunk_seconds=%s audio=%s",
+            "task=%s step=chunk_transcribe_start chunks=%s chunk_seconds=%s audio=%s audio_bytes=%s",
             task_id,
             len(chunk_paths),
             self.settings.whisper_chunk_seconds,
             audio_path.name,
+            audio_size,
         )
 
         merged_inputs: list[tuple[float, dict[str, Any]]] = []
@@ -378,18 +381,27 @@ class TaskProcessor:
                 progress=0.4 + (0.25 * index / max(total_chunks, 1)),
                 message=f"Transcribing chunk {index}/{total_chunks}",
             )
-            transcript = await self.whisper.transcribe(chunk_path, language)
+            transcript = await self._transcribe_chunk_with_retry(
+                task_id,
+                chunk_path,
+                chunk_dir / f"{chunk_path.stem}-nested",
+                language,
+                self.settings.whisper_chunk_seconds,
+                chunk_label=f"{index}/{total_chunks}",
+                depth=1,
+            )
             chunk_duration = await asyncio.to_thread(
                 probe_duration,
                 chunk_path,
                 self.settings.ffprobe_bin,
             )
             logger.info(
-                "task=%s step=chunk_transcribe_result chunk=%s/%s chunk_file=%s chunk_duration=%.3f segments=%s speakers=%s text_len=%s",
+                "task=%s step=chunk_transcribe_result chunk=%s/%s chunk_file=%s chunk_bytes=%s chunk_duration=%.3f segments=%s speakers=%s text_len=%s",
                 task_id,
                 index,
                 total_chunks,
                 chunk_path.name,
+                chunk_path.stat().st_size if chunk_path.exists() else 0,
                 chunk_duration,
                 len(transcript.get("segments") or []),
                 len(transcript.get("speakers") or []),
@@ -399,6 +411,115 @@ class TaskProcessor:
             offset += max(chunk_duration, float(transcript.get("duration") or 0.0), 0.1)
 
         return merge_transcripts(merged_inputs)
+
+    async def _transcribe_chunk_with_retry(
+        self,
+        task_id: str,
+        audio_path: Path,
+        working_dir: Path,
+        language: str,
+        chunk_seconds: int,
+        *,
+        chunk_label: str,
+        depth: int,
+    ) -> dict[str, Any]:
+        try:
+            return await self.whisper.transcribe(audio_path, language)
+        except WhisperPayloadTooLargeError as exc:
+            next_chunk_seconds = max(MIN_RETRY_CHUNK_SECONDS, chunk_seconds // 2)
+            if next_chunk_seconds >= chunk_seconds:
+                raise RuntimeError(
+                    "Whisper upload still exceeds the gateway limit after retrying with "
+                    f"{chunk_seconds}-second chunks ({audio_path.name})."
+                ) from exc
+
+            chunk_bytes = audio_path.stat().st_size if audio_path.exists() else 0
+            logger.info(
+                "task=%s step=chunk_transcribe_retry chunk=%s depth=%s chunk_file=%s chunk_bytes=%s chunk_seconds=%s next_chunk_seconds=%s",
+                task_id,
+                chunk_label,
+                depth,
+                audio_path.name,
+                chunk_bytes,
+                chunk_seconds,
+                next_chunk_seconds,
+            )
+            self.repository.update_task(
+                task_id,
+                status="processing",
+                message=(
+                    f"Chunk {chunk_label} exceeded upload size limits. "
+                    f"Retrying with {next_chunk_seconds}-second slices"
+                ),
+            )
+
+            retry_dir = working_dir / f"split-{next_chunk_seconds}s"
+            subchunk_paths = await asyncio.to_thread(
+                split_audio,
+                audio_path,
+                retry_dir,
+                next_chunk_seconds,
+                self.settings.ffmpeg_bin,
+            )
+            logger.info(
+                "task=%s step=chunk_transcribe_subdivide chunk=%s depth=%s chunk_file=%s chunks=%s chunk_seconds=%s",
+                task_id,
+                chunk_label,
+                depth,
+                audio_path.name,
+                len(subchunk_paths),
+                next_chunk_seconds,
+            )
+
+            merged_inputs: list[tuple[float, dict[str, Any]]] = []
+            offset = 0.0
+            total_subchunks = len(subchunk_paths)
+
+            for index, subchunk_path in enumerate(subchunk_paths, start=1):
+                if self._should_delete(task_id):
+                    self._purge_task(task_id)
+                    raise RuntimeError("Task deleted while transcribing audio chunks.")
+
+                subchunk_label = f"{chunk_label}.{index}/{total_subchunks}"
+                self.repository.update_task(
+                    task_id,
+                    status="processing",
+                    message=f"Transcribing smaller slice {subchunk_label}",
+                )
+                transcript = await self._transcribe_chunk_with_retry(
+                    task_id,
+                    subchunk_path,
+                    working_dir / subchunk_path.stem,
+                    language,
+                    next_chunk_seconds,
+                    chunk_label=subchunk_label,
+                    depth=depth + 1,
+                )
+                subchunk_duration = await asyncio.to_thread(
+                    probe_duration,
+                    subchunk_path,
+                    self.settings.ffprobe_bin,
+                )
+                logger.info(
+                    "task=%s step=chunk_transcribe_result chunk=%s depth=%s chunk_file=%s chunk_bytes=%s chunk_duration=%.3f segments=%s speakers=%s text_len=%s",
+                    task_id,
+                    subchunk_label,
+                    depth + 1,
+                    subchunk_path.name,
+                    subchunk_path.stat().st_size if subchunk_path.exists() else 0,
+                    subchunk_duration,
+                    len(transcript.get("segments") or []),
+                    len(transcript.get("speakers") or []),
+                    len(str(transcript.get("text") or "")),
+                )
+                merged_inputs.append((offset, transcript))
+                offset += max(
+                    subchunk_duration,
+                    float(transcript.get("duration") or 0.0),
+                    0.1,
+                )
+
+            return merge_transcripts(merged_inputs)
 
     async def _render_only(self, task_id: str) -> None:
         task = self.repository.get_task(task_id)
