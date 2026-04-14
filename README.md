@@ -147,3 +147,4 @@ Open `http://127.0.0.1:8000`.
 - Browser-based subtitle preview depends on the rendered output being generated successfully by FFmpeg.
 - Task metadata is mirrored into each task workspace, so completed tasks can be recovered into the UI after a restart even if the SQLite file was recreated.
 - If Chromium-style preview tooling is needed later, install the missing system libraries in the runtime image separately.
+- If you run Ubuntu inside a Windows VM and need to expose the app through the Windows host IP and port `18080`, see [WINDOWS_VM_EXTERNAL_ACCESS.md](/home/jks/project/video_caption/WINDOWS_VM_EXTERNAL_ACCESS.md).
