@@ -100,6 +100,18 @@ sudo apt-get install -y fontconfig fonts-noto-cjk
 
 If you cannot install system packages, place a `.ttf`, `.ttc`, or `.otf` font inside the project `fonts/` directory. That directory is included in the default subtitle font search path.
 
+On Ubuntu, the app now asks FFmpeg to load fonts directly from `SUBTITLE_FONT_DIRS` and tries to auto-detect a Korean subtitle font with `fc-match`. If auto-detection still picks the wrong family, check the actual installed family name and pin it in `.env`:
+
+```bash
+fc-match -f '%{family[0]}\n' 'sans-serif:lang=ko'
+```
+
+Then set:
+
+```bash
+SUBTITLE_FONT_NAME=the family name returned above
+```
+
 ## Run
 
 ```bash

@@ -32,7 +32,6 @@ const ffmpegStatusEl = document.getElementById("ffmpeg-status");
 const whisperStatusEl = document.getElementById("whisper-status");
 const retryButton = document.getElementById("retry-button");
 const refreshDetailButton = document.getElementById("refresh-detail-button");
-const addCueButton = document.getElementById("add-cue-button");
 const saveCuesButton = document.getElementById("save-cues-button");
 const sourceLink = document.getElementById("source-link");
 const renderedLink = document.getElementById("rendered-link");
@@ -250,6 +249,11 @@ function renderCueEditor(cues) {
             <span>텍스트</span>
             <textarea class="cue-text">${escapeHtml(cue.text)}</textarea>
           </label>
+          <div class="cue-row-actions">
+            <button class="ghost-button cue-insert-button" data-action="insert-cue-after" data-index="${index}" type="button">
+              다음 줄에 자막 추가
+            </button>
+          </div>
         </div>
       `
     )
@@ -377,21 +381,33 @@ function collectCues() {
   }));
 }
 
-function addCueRow() {
-  const cues = state.detail?.cues ? [...state.detail.cues] : [];
-  const lastCue = cues[cues.length - 1];
-  const start = lastCue ? Number(lastCue.end) + 0.2 : 0;
-  cues.push({
-    id: `cue-${String(cues.length + 1).padStart(4, "0")}`,
+function buildInsertedCue(afterCue, index) {
+  const start = afterCue ? Number(afterCue.end) + 0.2 : 0;
+  return {
+    id: `cue-${String(index + 1).padStart(4, "0")}`,
     start,
     end: start + 2.5,
     speaker: "",
     text: "",
-  });
-  state.detail.cues = cues;
-  state.activeCueId = cues[cues.length - 1].id;
-  renderCueEditor(cues);
-  state.renderedCueSignature = cueSignature(cues);
+  };
+}
+
+function addCueRow(afterIndex = null) {
+  const cues = state.detail?.cues ? [...state.detail.cues] : [];
+  const insertIndex =
+    typeof afterIndex === "number" && afterIndex >= 0
+      ? Math.min(afterIndex + 1, cues.length)
+      : cues.length;
+  const previousCue = cues[insertIndex - 1] || null;
+  cues.splice(insertIndex, 0, buildInsertedCue(previousCue, insertIndex));
+  const normalized = cues.map((cue, index) => ({
+    ...cue,
+    id: `cue-${String(index + 1).padStart(4, "0")}`,
+  }));
+  state.detail.cues = normalized;
+  state.activeCueId = normalized[insertIndex].id;
+  renderCueEditor(normalized);
+  state.renderedCueSignature = cueSignature(normalized);
 }
 
 uploadForm.addEventListener("submit", async (event) => {
@@ -471,13 +487,6 @@ refreshDetailButton.addEventListener("click", async () => {
   await loadTaskDetail(state.selectedTaskId);
 });
 
-addCueButton.addEventListener("click", () => {
-  if (!state.detail) {
-    return;
-  }
-  addCueRow();
-});
-
 cueEditorEl.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-action='remove-cue']");
   if (button && state.detail) {
@@ -487,6 +496,12 @@ cueEditorEl.addEventListener("click", (event) => {
     renderCueEditor(state.detail.cues);
     state.renderedCueSignature = cueSignature(state.detail.cues);
     applyActiveCueState();
+    return;
+  }
+
+  const insertButton = event.target.closest("button[data-action='insert-cue-after']");
+  if (insertButton && state.detail) {
+    addCueRow(Number(insertButton.dataset.index));
     return;
   }
 

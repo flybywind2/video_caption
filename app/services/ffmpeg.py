@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import os
 import subprocess
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from xml.sax.saxutils import escape as xml_escape
 
 
 class FfmpegError(RuntimeError):
@@ -12,6 +9,15 @@ class FfmpegError(RuntimeError):
 
 
 FONT_SUFFIXES = (".ttf", ".otf", ".ttc")
+PREFERRED_HANGUL_FONTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Noto Sans CJK KR", ("notosanscjk", "notoserifcjk", "sourcehansans", "sourcehanserif")),
+    ("Noto Sans KR", ("notosanskr",)),
+    ("NanumGothic", ("nanumgothic", "nanummyeongjo", "nanumbarungothic")),
+    ("Malgun Gothic", ("malgun",)),
+    ("Droid Sans Fallback", ("droidsansfallback",)),
+    ("Baekmuk Gulim", ("baekmuk",)),
+    ("UnDotum", ("undotum",)),
+)
 
 
 def _run(
@@ -68,14 +74,62 @@ def _subtitle_needs_unicode_font(subtitle_path: Path) -> bool:
     return any(ord(char) > 127 for char in payload)
 
 
-def _fontconfig_xml(font_dirs: list[Path]) -> str:
-    dirs = "".join(f"<dir>{xml_escape(str(path))}</dir>" for path in font_dirs)
-    return (
-        "<?xml version=\"1.0\"?>\n"
-        "<fontconfig>\n"
-        f"{dirs}\n"
-        "</fontconfig>\n"
+def _font_key(value: str) -> str:
+    return "".join(char for char in value.lower() if char.isalnum())
+
+
+def _pick_fontsdir(font_dirs: list[Path]) -> Path | None:
+    for path in font_dirs:
+        if path.is_dir():
+            return path
+    return None
+
+
+def _subtitle_contains_hangul(subtitle_path: Path) -> bool:
+    payload = subtitle_path.read_text(encoding="utf-8", errors="ignore")
+    return any(
+        ("\u1100" <= char <= "\u11ff")
+        or ("\u3130" <= char <= "\u318f")
+        or ("\uac00" <= char <= "\ud7a3")
+        for char in payload
     )
+
+
+def _guess_hangul_font_name(font_dirs: list[Path]) -> str:
+    for font_dir in font_dirs:
+        try:
+            candidates = sorted(font_dir.rglob("*"))
+        except OSError:
+            continue
+        for path in candidates:
+            if not path.is_file() or path.suffix.lower() not in FONT_SUFFIXES:
+                continue
+            key = _font_key(path.stem)
+            for family, patterns in PREFERRED_HANGUL_FONTS:
+                if any(pattern in key for pattern in patterns):
+                    return family
+    return ""
+
+
+def _fc_match_hangul_font() -> str:
+    try:
+        result = subprocess.run(
+            [
+                "fc-match",
+                "-f",
+                "%{family[0]}",
+                "sans-serif:lang=ko",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return ""
+
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
 
 
 def extract_audio(video_path: Path, audio_path: Path, ffmpeg_bin: str) -> None:
@@ -170,15 +224,23 @@ def render_subtitles(
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     font_dirs = _resolve_font_dirs(subtitle_font_dirs)
-    if _subtitle_needs_unicode_font(srt_path) and not font_dirs:
+    needs_unicode_font = _subtitle_needs_unicode_font(srt_path)
+    if needs_unicode_font and not font_dirs:
         raise FfmpegError(
             "No usable subtitle fonts were found for non-ASCII captions. "
             "Install a Korean-capable font or set SUBTITLE_FONT_DIRS."
         )
 
-    subtitle_filter = f"subtitles={_escape_filter_value(str(srt_path))}:charenc=UTF-8"
-    if subtitle_font_name.strip():
-        escaped_font_name = subtitle_font_name.strip().replace("'", "\\'")
+    fontsdir = _pick_fontsdir(font_dirs)
+    selected_font_name = subtitle_font_name.strip()
+    if not selected_font_name and _subtitle_contains_hangul(srt_path):
+        selected_font_name = _fc_match_hangul_font() or _guess_hangul_font_name(font_dirs)
+
+    subtitle_filter = f"subtitles={_escape_filter_value(str(srt_path))}:charenc=UTF-8:wrap_unicode=1"
+    if fontsdir:
+        subtitle_filter += f":fontsdir={_escape_filter_value(str(fontsdir))}"
+    if selected_font_name:
+        escaped_font_name = selected_font_name.replace("'", "\\'")
         subtitle_filter += f":force_style='FontName={escaped_font_name}'"
 
     command = [
@@ -201,14 +263,4 @@ def render_subtitles(
         str(output_path),
     ]
 
-    if not font_dirs:
-        _run(command)
-        return
-
-    with TemporaryDirectory() as temp_dir:
-        config_path = Path(temp_dir) / "fonts.conf"
-        config_path.write_text(_fontconfig_xml(font_dirs), encoding="utf-8")
-        env = os.environ.copy()
-        env["FONTCONFIG_FILE"] = str(config_path)
-        env["FONTCONFIG_PATH"] = temp_dir
-        _run(command, env=env)
+    _run(command)
