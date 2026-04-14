@@ -600,7 +600,7 @@ def build_ass(
         "ScriptType: v4.00+",
         f"PlayResX: {play_res_x}",
         f"PlayResY: {play_res_y}",
-        "WrapStyle: 2",
+        "WrapStyle: 0",
         "ScaledBorderAndShadow: yes",
         "",
         "[V4+ Styles]",
@@ -615,7 +615,7 @@ def build_ass(
         f"{_ass_color(base_style['outline_color'])},"
         f"{_ass_color('#000000')},"
         "0,0,0,0,100,100,0,0,1,2.2,0.8,"
-        f"{ALIGNMENT_TO_ASS[base_style['alignment']]},24,24,24,1",
+        f"{ALIGNMENT_TO_ASS[base_style['alignment']]},72,72,32,1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
