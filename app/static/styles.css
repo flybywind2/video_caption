@@ -387,6 +387,7 @@ input[type="color"] {
 }
 
 .status-badge.queued,
+.status-badge.blocked,
 .status-badge.processing,
 .status-badge.rendering,
 .status-badge.deleting {

@@ -55,6 +55,9 @@ class Settings:
     whisper_require_auth: bool
     whisper_max_upload_bytes: int
     whisper_chunk_seconds: int
+    upload_split_threshold_bytes: int
+    upload_split_prompt_seconds: int
+    upload_split_chunk_seconds: int
     subtitle_font_dirs: tuple[Path, ...]
     subtitle_font_name: str
     worker_count: int
@@ -98,6 +101,18 @@ class Settings:
                 os.getenv("WHISPER_MAX_UPLOAD_BYTES", str(8 * 1024 * 1024))
             ),
             whisper_chunk_seconds=max(60, int(os.getenv("WHISPER_CHUNK_SECONDS", "480"))),
+            upload_split_threshold_bytes=max(
+                50 * 1024 * 1024,
+                int(os.getenv("UPLOAD_SPLIT_THRESHOLD_BYTES", str(500 * 1024 * 1024))),
+            ),
+            upload_split_prompt_seconds=max(
+                300,
+                int(os.getenv("UPLOAD_SPLIT_PROMPT_SECONDS", str(20 * 60))),
+            ),
+            upload_split_chunk_seconds=max(
+                120,
+                int(os.getenv("UPLOAD_SPLIT_CHUNK_SECONDS", str(10 * 60))),
+            ),
             subtitle_font_dirs=_subtitle_font_dirs(
                 os.getenv("SUBTITLE_FONT_DIRS"),
                 default=default_font_dirs,

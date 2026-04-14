@@ -52,6 +52,21 @@ def build_task_artifacts(storage_root: Path, task_id: str, original_filename: st
     )
 
 
+def temp_upload_path(storage_root: Path, original_filename: str) -> Path:
+    temp_dir = storage_root / ".uploads"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = safe_filename(original_filename)
+    return temp_dir / f"{uuid4().hex[:12]}-{safe_name}"
+
+
+def split_part_filename(original_filename: str, index: int, total: int) -> str:
+    original = Path(safe_filename(original_filename))
+    stem = original.stem or "upload"
+    suffix = original.suffix or ".mp4"
+    width = max(2, len(str(max(total, 1))))
+    return f"{stem}-part-{index:0{width}d}-of-{total:0{width}d}{suffix}"
+
+
 def new_rendered_video_path(task_dir: Path) -> Path:
     return task_dir / f"rendered-{uuid4().hex[:12]}.mp4"
 

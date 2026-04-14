@@ -6,6 +6,7 @@ FastAPI based web service for:
 - extracting audio with FFmpeg
 - sending audio to a `whisper-large-v3` compatible transcription API
 - queueing large volumes of jobs with background workers
+- optionally splitting very large uploads into ordered batch tasks
 - tracking each uploaded task
 - deleting uploaded tasks and generated artifacts
 - editing captions in the browser
@@ -17,10 +18,11 @@ FastAPI based web service for:
 - FastAPI backend with async upload and API endpoints
 - in-process worker queue with configurable concurrency
 - SQLite task registry with task workspace snapshots for persistence across restarts
+- optional large-upload splitting into sequential 10-minute parts
 - FFmpeg audio extraction and burned subtitle rendering
 - diarized transcription support using the response shape in `request_option.md`
 - browser UI for upload, preview, task tracking, caption editing, rerender, and delete
-- ASS-based subtitle rendering so font, size, color, and position can be controlled globally or per cue
+- ASS-based subtitle rendering so NanumGothic-backed size, color, and position can be controlled globally or per cue
 
 ## Project Layout
 
@@ -76,6 +78,9 @@ WHISPER_REQUIRE_AUTH=true
 WHISPER_TIMEOUT_SECONDS=600
 WHISPER_MAX_UPLOAD_BYTES=8388608
 WHISPER_CHUNK_SECONDS=480
+UPLOAD_SPLIT_THRESHOLD_BYTES=524288000
+UPLOAD_SPLIT_PROMPT_SECONDS=1200
+UPLOAD_SPLIT_CHUNK_SECONDS=600
 SUBTITLE_FONT_DIRS=/usr/share/fonts:/usr/local/share/fonts:~/.local/share/fonts
 SUBTITLE_FONT_NAME=
 ```
@@ -89,6 +94,9 @@ FFPROBE_BIN=ffprobe
 
 `WHISPER_MAX_UPLOAD_BYTES` is the pre-check threshold before the app switches to chunked transcription.
 `WHISPER_CHUNK_SECONDS` controls per-chunk audio duration for fallback uploads.
+`UPLOAD_SPLIT_THRESHOLD_BYTES` is the browser prompt threshold for suggesting split registration.
+`UPLOAD_SPLIT_PROMPT_SECONDS` is the duration threshold for suggesting split registration.
+`UPLOAD_SPLIT_CHUNK_SECONDS` controls how long each split video part should be.
 `SUBTITLE_FONT_DIRS` is a `:` separated list of font directories used when FFmpeg burns subtitles.
 `SUBTITLE_FONT_NAME` is optional. Set it only if you want to force a specific libass font family.
 If you keep project-local binaries instead, point these values at those absolute paths.
@@ -125,7 +133,7 @@ Open `http://127.0.0.1:8000`.
 
 ## API Summary
 
-- `POST /api/tasks` uploads a video and enqueues processing
+- `POST /api/tasks` uploads a video and enqueues processing. It also accepts `split_mode=chunked` to register large uploads as ordered split tasks.
 - `GET /api/tasks` lists all tasks
 - `GET /api/tasks/{task_id}` returns task detail and caption data
 - `PUT /api/tasks/{task_id}/captions` saves edited captions and subtitle styles, then queues rerender

@@ -15,11 +15,13 @@ from app.artifacts import (
     build_task_artifacts,
     read_json,
     remove_task_workspace,
+    split_part_filename,
+    temp_upload_path,
     write_json,
     write_text,
 )
 from app.config import Settings
-from app.database import TaskRepository
+from app.database import TaskRepository, utc_now
 from app.queue import TaskProcessor
 from app.schemas import (
     ArtifactLinks,
@@ -27,6 +29,7 @@ from app.schemas import (
     CaptionUpdateRequest,
     DeleteTaskResponse,
     HealthResponse,
+    TaskCreateResponse,
     TaskDetail,
     TaskSummary,
 )
@@ -36,6 +39,7 @@ from app.services.captions import (
     default_caption_style,
     normalize_caption_document,
 )
+from app.services.ffmpeg import split_video
 
 settings = Settings.from_env()
 BASE_DIR = Path(__file__).resolve().parent
@@ -92,6 +96,9 @@ def task_to_summary(task: dict) -> TaskSummary:
         original_filename=task["original_filename"],
         language=task["language"],
         status=task["status"],
+        batch_id=task.get("batch_id"),
+        batch_index=int(task.get("batch_index") or 1),
+        batch_total=int(task.get("batch_total") or 1),
         pending_action=task.get("pending_action", "idle"),
         progress=float(task.get("progress") or 0.0),
         message=task.get("message") or "",
@@ -142,6 +149,49 @@ def delete_task_files(repository: TaskRepository, task_id: str) -> None:
     repository.delete_task(task_id)
 
 
+async def write_upload_to_path(file: UploadFile, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("wb") as handle:
+        while chunk := await file.read(1024 * 1024):
+            handle.write(chunk)
+
+
+def create_task_record(
+    *,
+    task_id: str,
+    original_filename: str,
+    language: str,
+    artifacts,
+    status: str,
+    message: str,
+    batch_id: str | None = None,
+    batch_index: int = 1,
+    batch_total: int = 1,
+    blocked_by_task_id: str | None = None,
+    created_at: str | None = None,
+) -> dict:
+    return {
+        "id": task_id,
+        "original_filename": original_filename,
+        "language": language,
+        "status": status,
+        "batch_id": batch_id,
+        "batch_index": batch_index,
+        "batch_total": batch_total,
+        "blocked_by_task_id": blocked_by_task_id,
+        "pending_action": "transcribe",
+        "progress": 0.0 if status == "blocked" else 0.05,
+        "message": message,
+        "source_video_path": str(artifacts.source_video_path),
+        "audio_path": str(artifacts.audio_path),
+        "transcript_path": str(artifacts.transcript_path),
+        "captions_path": str(artifacts.captions_path),
+        "srt_path": str(artifacts.srt_path),
+        "rendered_video_path": None,
+        "created_at": created_at,
+    }
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.ensure_directories()
@@ -181,6 +231,9 @@ async def health(request: Request) -> HealthResponse:
         queue_size=processor.queue_size(),
         worker_count=settings.worker_count,
         task_counts=repository.status_counts(),
+        upload_split_threshold_bytes=settings.upload_split_threshold_bytes,
+        upload_split_prompt_seconds=settings.upload_split_prompt_seconds,
+        upload_split_chunk_seconds=settings.upload_split_chunk_seconds,
     )
 
 
@@ -190,45 +243,111 @@ async def list_tasks(request: Request) -> list[TaskSummary]:
     return [task_to_summary(task) for task in repository.list_tasks()]
 
 
-@app.post("/api/tasks", response_model=TaskDetail)
+@app.post("/api/tasks", response_model=TaskCreateResponse)
 async def create_task(
     request: Request,
     file: UploadFile = File(...),
     language: str = Form("en"),
-) -> TaskDetail:
+    split_mode: str = Form("single"),
+) -> TaskCreateResponse:
     if not file.filename:
         raise HTTPException(status_code=400, detail="A video file is required.")
+    if split_mode not in {"single", "chunked"}:
+        raise HTTPException(status_code=400, detail="Unsupported split mode.")
+
+    repository = get_repository(request)
+    processor = get_processor(request)
+    temp_source_path = temp_upload_path(settings.storage_root, file.filename)
+    try:
+        await write_upload_to_path(file, temp_source_path)
+    finally:
+        await file.close()
+
+    if split_mode == "chunked":
+        split_batch_id = uuid4().hex[:10]
+        split_dir = temp_source_path.parent / f"{temp_source_path.stem}-parts"
+        created_tasks: list[dict] = []
+        batch_created_at = utc_now()
+        try:
+            chunk_paths = split_video(
+                temp_source_path,
+                split_dir,
+                settings.upload_split_chunk_seconds,
+                settings.ffmpeg_bin,
+            )
+            total = len(chunk_paths)
+            previous_task_id: str | None = None
+            for index, chunk_path in enumerate(chunk_paths, start=1):
+                task_id = uuid4().hex[:12]
+                part_filename = split_part_filename(file.filename, index, total)
+                artifacts = build_task_artifacts(settings.storage_root, task_id, part_filename)
+                artifacts.ensure_directories()
+                shutil.move(str(chunk_path), str(artifacts.source_video_path))
+                task = repository.create_task(
+                    create_task_record(
+                        task_id=task_id,
+                        original_filename=part_filename,
+                        language=language,
+                        artifacts=artifacts,
+                        status="queued" if index == 1 else "blocked",
+                        message=(
+                            f"Split part {index}/{total} queued."
+                            if index == 1
+                            else f"Split part {index}/{total} waiting for the previous part."
+                        ),
+                        batch_id=split_batch_id,
+                        batch_index=index,
+                        batch_total=total,
+                        blocked_by_task_id=previous_task_id,
+                        created_at=batch_created_at,
+                    )
+                )
+                created_tasks.append(task)
+                previous_task_id = task_id
+        except Exception:
+            for task in created_tasks:
+                delete_task_files(repository, task["id"])
+            raise
+        finally:
+            shutil.rmtree(split_dir, ignore_errors=True)
+            temp_source_path.unlink(missing_ok=True)
+
+        if not created_tasks:
+            raise HTTPException(status_code=500, detail="Split upload produced no tasks.")
+
+        await processor.enqueue(created_tasks[0]["id"], action="transcribe")
+        return TaskCreateResponse(
+            tasks=[task_to_detail(task) for task in created_tasks],
+            primary_task_id=created_tasks[0]["id"],
+            batch_created=len(created_tasks) > 1,
+            message=(
+                f"Large upload split into {len(created_tasks)} queued parts."
+                if len(created_tasks) > 1
+                else "Upload registered as a single task."
+            ),
+        )
 
     task_id = uuid4().hex[:12]
     artifacts = build_task_artifacts(settings.storage_root, task_id, file.filename)
     artifacts.ensure_directories()
-
-    with artifacts.source_video_path.open("wb") as handle:
-        while chunk := await file.read(1024 * 1024):
-            handle.write(chunk)
-    await file.close()
-
-    repository = get_repository(request)
-    processor = get_processor(request)
+    shutil.move(str(temp_source_path), str(artifacts.source_video_path))
     task = repository.create_task(
-        {
-            "id": task_id,
-            "original_filename": file.filename,
-            "language": language,
-            "status": "queued",
-            "pending_action": "transcribe",
-            "progress": 0.05,
-            "message": "Upload complete. Waiting in queue.",
-            "source_video_path": str(artifacts.source_video_path),
-            "audio_path": str(artifacts.audio_path),
-            "transcript_path": str(artifacts.transcript_path),
-            "captions_path": str(artifacts.captions_path),
-            "srt_path": str(artifacts.srt_path),
-            "rendered_video_path": None,
-        }
+        create_task_record(
+            task_id=task_id,
+            original_filename=file.filename,
+            language=language,
+            artifacts=artifacts,
+            status="queued",
+            message="Upload complete. Waiting in queue.",
+        )
     )
     await processor.enqueue(task_id, action="transcribe")
-    return task_to_detail(task)
+    return TaskCreateResponse(
+        tasks=[task_to_detail(task)],
+        primary_task_id=task_id,
+        batch_created=False,
+        message="Task queued.",
+    )
 
 
 @app.get("/api/tasks/{task_id}", response_model=TaskDetail)
@@ -278,7 +397,7 @@ async def update_captions(
         build_ass(
             caption_document["cues"],
             caption_document["global_style"],
-            default_font_family=settings.subtitle_font_name or "auto",
+            default_font_family=settings.subtitle_font_name or "NanumGothic",
             font_dirs=settings.subtitle_font_dirs,
         ),
     )

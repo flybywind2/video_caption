@@ -105,6 +105,16 @@ def _alignment_anchor_percent(alignment: str) -> tuple[int, int]:
     return ALIGNMENT_TO_PERCENT.get(alignment, ALIGNMENT_TO_PERCENT[DEFAULT_CAPTION_STYLE["alignment"]])
 
 
+def _stacked_position_y(base_y: int, alignment: str, stack_index: int, font_size: int) -> int:
+    if stack_index <= 0:
+        return base_y
+
+    step = max(28, round(font_size * 1.35))
+    if alignment.startswith("top"):
+        return base_y + stack_index * step
+    return base_y - stack_index * step
+
+
 def _legacy_offsets_from_position(style: dict[str, Any], alignment: str) -> tuple[int | None, int | None]:
     anchor_x, anchor_y = _alignment_anchor_percent(alignment)
     offset_x: int | None = None
@@ -568,8 +578,22 @@ def build_ass(
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
     ]
 
+    active_stack_slots: dict[str, list[float]] = {}
+
     for cue in normalized_cues:
         effective_style = merge_caption_style(base_style, cue.get("style"))
+        alignment = effective_style["alignment"]
+        stack_slots = active_stack_slots.setdefault(alignment, [])
+        stack_index = 0
+        for index, slot_end in enumerate(stack_slots):
+            if float(slot_end) <= float(cue["start"]) + 0.01:
+                stack_index = index
+                break
+        else:
+            stack_index = len(stack_slots)
+            stack_slots.append(0.0)
+        stack_slots[stack_index] = float(cue["end"])
+
         anchor_x, anchor_y = _alignment_anchor_percent(effective_style["alignment"])
         position_x = _clamp(
             round(play_res_x * anchor_x / 100) + int(effective_style.get("offset_x", 0)),
@@ -577,7 +601,12 @@ def build_ass(
             play_res_x,
         )
         position_y = _clamp(
-            round(play_res_y * anchor_y / 100) + int(effective_style.get("offset_y", 0)),
+            _stacked_position_y(
+                round(play_res_y * anchor_y / 100) + int(effective_style.get("offset_y", 0)),
+                alignment,
+                stack_index,
+                int(effective_style["font_size"]),
+            ),
             0,
             play_res_y,
         )
@@ -598,7 +627,7 @@ def build_ass(
             "\\shad0.8",
         ]
         lines.append(
-            "Dialogue: 0,"
+            f"Dialogue: {stack_index},"
             f"{ass_timestamp(cue['start'])},"
             f"{ass_timestamp(cue['end'])},"
             "Default,,0,0,0,,"

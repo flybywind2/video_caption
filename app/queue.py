@@ -132,6 +132,7 @@ class TaskProcessor:
                             error_message=str(exc),
                             completed_at=utc_now(),
                         )
+                        await self._release_blocked_successors(job.task_id)
             finally:
                 self.queue.task_done()
 
@@ -211,7 +212,7 @@ class TaskProcessor:
             build_ass(
                 caption_document["cues"],
                 caption_document["global_style"],
-                default_font_family=self.settings.subtitle_font_name or "auto",
+                default_font_family=self.settings.subtitle_font_name or "NanumGothic",
                 font_dirs=self.settings.subtitle_font_dirs,
             ),
         )
@@ -248,6 +249,7 @@ class TaskProcessor:
             rendered_video_path=str(rendered_video_path),
             completed_at=utc_now(),
         )
+        await self._release_blocked_successors(task_id)
 
     async def _transcribe_with_fallback(
         self,
@@ -362,7 +364,7 @@ class TaskProcessor:
             build_ass(
                 caption_document["cues"],
                 caption_document["global_style"],
-                default_font_family=self.settings.subtitle_font_name or "auto",
+                default_font_family=self.settings.subtitle_font_name or "NanumGothic",
                 font_dirs=self.settings.subtitle_font_dirs,
             ),
         )
@@ -400,6 +402,7 @@ class TaskProcessor:
             rendered_video_path=str(rendered_video_path),
             completed_at=utc_now(),
         )
+        await self._release_blocked_successors(task_id)
 
     def _should_delete(self, task_id: str) -> bool:
         task = self.repository.get_task(task_id)
@@ -411,3 +414,8 @@ class TaskProcessor:
 
     def queue_size(self) -> int:
         return self.queue.qsize()
+
+    async def _release_blocked_successors(self, task_id: str) -> None:
+        released = self.repository.release_blocked_successors(task_id)
+        for task in released:
+            await self.enqueue(task["id"], action="transcribe", refresh_status=False)

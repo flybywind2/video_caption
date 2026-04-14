@@ -213,6 +213,44 @@ def split_audio(
     return chunk_paths
 
 
+def split_video(
+    video_path: Path,
+    chunk_dir: Path,
+    chunk_seconds: int,
+    ffmpeg_bin: str,
+) -> list[Path]:
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+    suffix = video_path.suffix or ".mp4"
+    for existing in chunk_dir.glob("part-*"):
+        existing.unlink(missing_ok=True)
+
+    pattern = chunk_dir / f"part-%03d{suffix}"
+    _run(
+        [
+            ffmpeg_bin,
+            "-y",
+            "-i",
+            str(video_path),
+            "-map",
+            "0",
+            "-c",
+            "copy",
+            "-f",
+            "segment",
+            "-segment_time",
+            str(chunk_seconds),
+            "-reset_timestamps",
+            "1",
+            str(pattern),
+        ]
+    )
+
+    chunk_paths = sorted(chunk_dir.glob(f"part-*{suffix}"))
+    if not chunk_paths:
+        raise FfmpegError("Video splitting produced no chunks.")
+    return chunk_paths
+
+
 def probe_duration(media_path: Path, ffprobe_bin: str) -> float:
     result = _run(
         [

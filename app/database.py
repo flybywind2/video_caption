@@ -32,6 +32,10 @@ class TaskRepository:
                     original_filename TEXT NOT NULL,
                     language TEXT NOT NULL,
                     status TEXT NOT NULL,
+                    batch_id TEXT,
+                    batch_index INTEGER NOT NULL DEFAULT 1,
+                    batch_total INTEGER NOT NULL DEFAULT 1,
+                    blocked_by_task_id TEXT,
                     pending_action TEXT NOT NULL DEFAULT 'transcribe',
                     progress REAL NOT NULL DEFAULT 0,
                     message TEXT DEFAULT '',
@@ -50,7 +54,26 @@ class TaskRepository:
                 )
                 """
             )
+            self._ensure_columns()
             self._conn.commit()
+
+    def _ensure_columns(self) -> None:
+        columns = {
+            row["name"]
+            for row in self._conn.execute("PRAGMA table_info(tasks)").fetchall()
+        }
+        additions = [
+            ("batch_id", "TEXT"),
+            ("batch_index", "INTEGER NOT NULL DEFAULT 1"),
+            ("batch_total", "INTEGER NOT NULL DEFAULT 1"),
+            ("blocked_by_task_id", "TEXT"),
+        ]
+        for column_name, definition in additions:
+            if column_name in columns:
+                continue
+            self._conn.execute(
+                f"ALTER TABLE tasks ADD COLUMN {column_name} {definition}"
+            )
 
     def recover_from_storage(self) -> int:
         inserted = 0
@@ -85,6 +108,10 @@ class TaskRepository:
             "original_filename": record["original_filename"],
             "language": record["language"],
             "status": record.get("status", "queued"),
+            "batch_id": record.get("batch_id"),
+            "batch_index": int(record.get("batch_index", 1) or 1),
+            "batch_total": int(record.get("batch_total", 1) or 1),
+            "blocked_by_task_id": record.get("blocked_by_task_id"),
             "pending_action": record.get("pending_action", "transcribe"),
             "progress": record.get("progress", 0.0),
             "message": record.get("message", ""),
@@ -96,8 +123,8 @@ class TaskRepository:
             "srt_path": record.get("srt_path"),
             "rendered_video_path": record.get("rendered_video_path"),
             "error_message": record.get("error_message"),
-            "created_at": now,
-            "updated_at": now,
+            "created_at": record.get("created_at", now),
+            "updated_at": record.get("updated_at", now),
             "started_at": record.get("started_at"),
             "completed_at": record.get("completed_at"),
         }
@@ -113,12 +140,14 @@ class TaskRepository:
             self._conn.execute(
                 """
                 INSERT INTO tasks (
-                    id, original_filename, language, status, pending_action, progress, message,
+                    id, original_filename, language, status, batch_id, batch_index, batch_total,
+                    blocked_by_task_id, pending_action, progress, message,
                     delete_requested, source_video_path, audio_path, transcript_path, captions_path,
                     srt_path, rendered_video_path, error_message, created_at, updated_at,
                     started_at, completed_at
                 ) VALUES (
-                    :id, :original_filename, :language, :status, :pending_action, :progress,
+                    :id, :original_filename, :language, :status, :batch_id, :batch_index,
+                    :batch_total, :blocked_by_task_id, :pending_action, :progress,
                     :message, :delete_requested, :source_video_path, :audio_path,
                     :transcript_path, :captions_path, :srt_path, :rendered_video_path,
                     :error_message, :created_at, :updated_at, :started_at, :completed_at
@@ -138,7 +167,7 @@ class TaskRepository:
     def list_tasks(self) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._conn.execute(
-                "SELECT * FROM tasks ORDER BY created_at DESC"
+                "SELECT * FROM tasks ORDER BY created_at DESC, batch_index ASC, updated_at DESC"
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -152,6 +181,46 @@ class TaskRepository:
                 """
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def release_blocked_successors(self, completed_task_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM tasks
+                WHERE blocked_by_task_id = ? AND status = 'blocked'
+                ORDER BY created_at ASC
+                """,
+                (completed_task_id,),
+            ).fetchall()
+            if not rows:
+                return []
+
+            released_at = utc_now()
+            task_ids = [row["id"] for row in rows]
+            self._conn.executemany(
+                """
+                UPDATE tasks
+                SET status = 'queued',
+                    pending_action = 'transcribe',
+                    progress = 0.05,
+                    blocked_by_task_id = NULL,
+                    message = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                [
+                    (
+                        "Previous split finished. Added to queue in order.",
+                        released_at,
+                        task_id,
+                    )
+                    for task_id in task_ids
+                ],
+            )
+            self._conn.commit()
+
+        released = [self.get_task(task_id) for task_id in task_ids]
+        return [task for task in released if task]
 
     def update_task(self, task_id: str, **fields: Any) -> dict[str, Any] | None:
         if not fields:
@@ -222,6 +291,8 @@ class TaskRepository:
         if not isinstance(payload, dict):
             return None
         payload["delete_requested"] = int(payload.get("delete_requested", 0))
+        payload["batch_index"] = int(payload.get("batch_index", 1) or 1)
+        payload["batch_total"] = int(payload.get("batch_total", 1) or 1)
         return payload
 
     def _reconstruct_task_record(self, task_dir: Path) -> dict[str, Any] | None:
@@ -243,6 +314,10 @@ class TaskRepository:
             "original_filename": source_video_path.name,
             "language": "ko",
             "status": "completed" if has_rendered else ("failed" if has_caption_data else "queued"),
+            "batch_id": None,
+            "batch_index": 1,
+            "batch_total": 1,
+            "blocked_by_task_id": None,
             "pending_action": "idle" if has_rendered else ("transcribe" if source_video_path.exists() else "idle"),
             "progress": 1.0 if has_rendered else (0.6 if has_caption_data else 0.0),
             "message": "Recovered from persisted task workspace",

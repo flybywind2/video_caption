@@ -65,6 +65,9 @@ class TaskSummary(BaseModel):
     original_filename: str
     language: str
     status: str
+    batch_id: str | None = None
+    batch_index: int = 1
+    batch_total: int = 1
     pending_action: str
     progress: float
     message: str
@@ -97,3 +100,13 @@ class HealthResponse(BaseModel):
     queue_size: int
     worker_count: int
     task_counts: dict[str, int]
+    upload_split_threshold_bytes: int
+    upload_split_prompt_seconds: int
+    upload_split_chunk_seconds: int
+
+
+class TaskCreateResponse(BaseModel):
+    tasks: list[TaskDetail]
+    primary_task_id: str
+    batch_created: bool = False
+    message: str

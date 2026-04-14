@@ -28,6 +28,11 @@ const state = {
   renderedDetailSignature: null,
   renderedTaskId: null,
   activeCueId: null,
+  uploadPolicy: {
+    thresholdBytes: 500 * 1024 * 1024,
+    promptSeconds: 20 * 60,
+    chunkSeconds: 10 * 60,
+  },
 };
 
 const APP_BASE = new URL(window.location.href);
@@ -85,6 +90,7 @@ function formatPercent(progress) {
 function prettyStatus(status) {
   const labels = {
     queued: "Queued",
+    blocked: "Blocked",
     processing: "Processing",
     rendering: "Rendering",
     completed: "Completed",
@@ -104,6 +110,19 @@ function formatCueTime(seconds) {
     return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${String(centiseconds).padStart(2, "0")}`;
   }
   return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${String(centiseconds).padStart(2, "0")}`;
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value >= 1024 ** 3) {
+    return `${(value / 1024 ** 3).toFixed(1)}GB`;
+  }
+  return `${(value / 1024 ** 2).toFixed(0)}MB`;
+}
+
+function formatMinutes(seconds) {
+  const totalMinutes = Math.max(1, Math.round((Number(seconds) || 0) / 60));
+  return `${totalMinutes}분`;
 }
 
 function escapeHtml(value) {
@@ -375,12 +394,14 @@ function renderTasks() {
   taskListEl.innerHTML = state.tasks
     .map((task) => {
       const active = task.id === state.selectedTaskId ? "active" : "";
+      const batchLabel = task.batch_total > 1 ? `분할 ${task.batch_index}/${task.batch_total}` : "";
+      const subtext = [batchLabel, task.message || ""].filter(Boolean).join(" · ");
       return `
         <article class="task-card ${active}" data-task-id="${task.id}">
           <div class="task-card-header">
             <div>
               <h3>${escapeHtml(task.original_filename)}</h3>
-              <p class="task-subtext">${escapeHtml(task.message || "")}</p>
+              <p class="task-subtext">${escapeHtml(subtext)}</p>
             </div>
             <span class="${statusClass(task.status)}">${prettyStatus(task.status)}</span>
           </div>
@@ -567,10 +588,75 @@ async function loadHealth() {
     workerCountEl.textContent = String(health.worker_count);
     ffmpegStatusEl.textContent = health.ffmpeg_available ? "Ready" : "Missing";
     whisperStatusEl.textContent = health.whisper_configured ? "Ready" : "Config";
+    state.uploadPolicy = {
+      thresholdBytes: health.upload_split_threshold_bytes || state.uploadPolicy.thresholdBytes,
+      promptSeconds: health.upload_split_prompt_seconds || state.uploadPolicy.promptSeconds,
+      chunkSeconds: health.upload_split_chunk_seconds || state.uploadPolicy.chunkSeconds,
+    };
   } catch (error) {
     ffmpegStatusEl.textContent = "Error";
     whisperStatusEl.textContent = "Error";
   }
+}
+
+function readLocalVideoDuration(file) {
+  return new Promise((resolve) => {
+    if (!file || !file.type.startsWith("video/")) {
+      resolve(null);
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    const probeVideo = document.createElement("video");
+    const cleanup = () => {
+      URL.revokeObjectURL(objectUrl);
+      probeVideo.removeAttribute("src");
+      probeVideo.load();
+    };
+
+    probeVideo.preload = "metadata";
+    probeVideo.onloadedmetadata = () => {
+      const duration = Number.isFinite(probeVideo.duration) ? probeVideo.duration : null;
+      cleanup();
+      resolve(duration);
+    };
+    probeVideo.onerror = () => {
+      cleanup();
+      resolve(null);
+    };
+    probeVideo.src = objectUrl;
+  });
+}
+
+async function chooseUploadSplitMode(file) {
+  const policy = state.uploadPolicy;
+  const duration = await readLocalVideoDuration(file);
+  const reasons = [];
+
+  if ((file?.size || 0) >= policy.thresholdBytes) {
+    reasons.push(`파일 크기 ${formatBytes(file.size)}`);
+  }
+  if (duration !== null && duration >= policy.promptSeconds) {
+    reasons.push(`영상 길이 ${formatMinutes(duration)}`);
+  }
+  if (!reasons.length) {
+    return "single";
+  }
+
+  const estimatedParts =
+    duration !== null ? Math.max(2, Math.ceil(duration / policy.chunkSeconds)) : null;
+  const confirmed = window.confirm(
+    [
+      "큰 영상이라 분할 등록을 권장합니다.",
+      `기준: ${reasons.join(", ")}`,
+      `확인: ${formatMinutes(policy.chunkSeconds)} 단위로 분할 등록`,
+      "취소: 단일 작업으로 그대로 등록",
+      estimatedParts ? `예상 파트 수: 약 ${estimatedParts}개` : "",
+    ]
+      .filter(Boolean)
+      .join("\n")
+  );
+  return confirmed ? "chunked" : "single";
 }
 
 async function loadTasks({ preserveSelection = true } = {}) {
@@ -663,18 +749,32 @@ function addCueRow(afterIndex = null) {
 
 uploadForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  const fileInput = uploadForm.querySelector('input[name="file"]');
+  const file = fileInput?.files?.[0];
+  if (!file) {
+    setMessage(uploadMessageEl, "영상 파일을 선택해 주세요.", "error");
+    return;
+  }
+
   const formData = new FormData(uploadForm);
-  setMessage(uploadMessageEl, "업로드 중...", "");
+  setMessage(uploadMessageEl, "파일 확인 중...", "");
   try {
-    const detail = await requestJson(apiUrl("tasks"), {
+    const splitMode = await chooseUploadSplitMode(file);
+    formData.set("split_mode", splitMode);
+    setMessage(
+      uploadMessageEl,
+      splitMode === "chunked" ? "분할 등록 중..." : "업로드 중...",
+      ""
+    );
+    const result = await requestJson(apiUrl("tasks"), {
       method: "POST",
       body: formData,
     });
     uploadForm.reset();
-    setMessage(uploadMessageEl, "작업이 큐에 등록되었습니다.", "success");
-    state.selectedTaskId = detail.id;
+    setMessage(uploadMessageEl, result.message || "작업이 큐에 등록되었습니다.", "success");
+    state.selectedTaskId = result.primary_task_id;
     await loadTasks({ preserveSelection: false });
-    await loadTaskDetail(detail.id);
+    await loadTaskDetail(result.primary_task_id);
   } catch (error) {
     setMessage(uploadMessageEl, error.message, "error");
   }
